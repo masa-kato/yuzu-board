@@ -1,5 +1,5 @@
 import { api } from './api.js';
-import { createBoard, holdTitle } from './board.js';
+import { createBoard, holdTitle, imagePpi } from './board.js';
 import { settleSwipe } from './swipe.js';
 import { GRADES, h, promptDialog, toast } from './ui.js';
 import * as climbs from './views/climbs.js';
@@ -51,6 +51,7 @@ const holdReadout = document.getElementById('hold-readout');
 const boardEl = document.getElementById('board');
 let board;
 let current = null;
+let currentView = null;
 let renderToken = 0;
 
 function readMe() {
@@ -118,7 +119,7 @@ function setHolds(holds) {
 }
 
 async function refreshHolds() {
-  setHolds(await api.holds());
+  setHolds(await api.holds(imagePpi(state.spec)));
   board.setHolds(state.holds);
 }
 
@@ -241,7 +242,10 @@ async function render() {
   const { view, params } = parseHash();
   current?.destroy?.();
   current = null;
-  board.reset();
+  // From one climb to the next (or the same one, after logging a send), the
+  // board keeps the old route until the new one is drawn over it.
+  board.reset({ keepRoute: view === 'route' && currentView === 'route' });
+  currentView = view;
   const nav = view === 'route' && params.circuitId ? 'circuits' : NAV_FOR_VIEW[view];
   document.querySelectorAll('.tabs a').forEach((a) => a.classList.toggle('active', a.dataset.nav === nav));
 
@@ -264,7 +268,10 @@ async function render() {
     if (token === renderToken) current = handle || {};
     else handle?.destroy?.();
   } catch (err) {
-    if (token === renderToken) root.replaceChildren(h('div', { class: 'empty' }, err.message));
+    if (token === renderToken) {
+      board.reset();   // not the route that was showing before
+      root.replaceChildren(h('div', { class: 'empty' }, err.message));
+    }
   } finally {
     clearTimeout(placeholder);
     // A swipe whose next page didn't take it over must not leave the wall offset.
@@ -273,7 +280,10 @@ async function render() {
 }
 
 async function init() {
-  const [spec, holds, climbers, volumes, colors] = await Promise.all([api.board(), api.holds(), api.climbers(), api.volumes(), api.colors()]);
+  // The hold images are sized for this screen and the board, so the holds wait for the board.
+  const loadSpec = api.board();
+  const [spec, holds, climbers, volumes, colors] = await Promise.all([
+    loadSpec, loadSpec.then((s) => api.holds(imagePpi(s))), api.climbers(), api.volumes(), api.colors()]);
   state.spec = spec;
   setHolds(holds);
   state.climbers = climbers;

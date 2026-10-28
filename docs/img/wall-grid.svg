@@ -1,0 +1,146 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1090 704" width="1090" height="704" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" role="img" aria-label="The wall's t-nut grid: columns A to AN from right to left, rows 1 to 39 from top to bottom, and the footboard below with columns A prime to O prime and rows 40 and 41.">
+<rect width="100%" height="100%" rx="18" fill="#0f1512"/>
+<defs><pattern id="tnuts" patternUnits="userSpaceOnUse" x="58.00" y="83.50" width="13.20" height="13.20"><circle cx="6.60" cy="6.60" r="1.25" fill="#050706"/></pattern><marker id="arr" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#FFE14D"/></marker><marker id="tick" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M5 0V10" stroke="#f0f6ef" stroke-width="1.6"/></marker></defs>
+<rect x="58" y="78" width="528.0" height="522.5" rx="3" fill="#132d25" stroke="#2f5a4b" stroke-width="1.5"/>
+<rect x="58" y="604.9" width="528.0" height="35.2" rx="3" fill="#132d25" stroke="#2f5a4b" stroke-width="1.5"/>
+<rect x="58" y="83.50" width="528.0" height="514.80" fill="url(#tnuts)"/>
+<circle cx="568.4" cy="615.9" r="2" fill="#050706"/>
+<circle cx="568.4" cy="629.1" r="2" fill="#050706"/>
+<circle cx="533.2" cy="615.9" r="2" fill="#050706"/>
+<circle cx="533.2" cy="629.1" r="2" fill="#050706"/>
+<circle cx="498.0" cy="615.9" r="2" fill="#050706"/>
+<circle cx="498.0" cy="629.1" r="2" fill="#050706"/>
+<circle cx="462.8" cy="615.9" r="2" fill="#050706"/>
+<circle cx="462.8" cy="629.1" r="2" fill="#050706"/>
+<circle cx="427.6" cy="615.9" r="2" fill="#050706"/>
+<circle cx="427.6" cy="629.1" r="2" fill="#050706"/>
+<circle cx="392.4" cy="615.9" r="2" fill="#050706"/>
+<circle cx="392.4" cy="629.1" r="2" fill="#050706"/>
+<circle cx="357.2" cy="615.9" r="2" fill="#050706"/>
+<circle cx="357.2" cy="629.1" r="2" fill="#050706"/>
+<circle cx="322.0" cy="615.9" r="2" fill="#050706"/>
+<circle cx="322.0" cy="629.1" r="2" fill="#050706"/>
+<circle cx="286.8" cy="615.9" r="2" fill="#050706"/>
+<circle cx="286.8" cy="629.1" r="2" fill="#050706"/>
+<circle cx="251.6" cy="615.9" r="2" fill="#050706"/>
+<circle cx="251.6" cy="629.1" r="2" fill="#050706"/>
+<circle cx="216.4" cy="615.9" r="2" fill="#050706"/>
+<circle cx="216.4" cy="629.1" r="2" fill="#050706"/>
+<circle cx="181.2" cy="615.9" r="2" fill="#050706"/>
+<circle cx="181.2" cy="629.1" r="2" fill="#050706"/>
+<circle cx="146.0" cy="615.9" r="2" fill="#050706"/>
+<circle cx="146.0" cy="629.1" r="2" fill="#050706"/>
+<circle cx="110.8" cy="615.9" r="2" fill="#050706"/>
+<circle cx="110.8" cy="629.1" r="2" fill="#050706"/>
+<circle cx="75.6" cy="615.9" r="2" fill="#050706"/>
+<circle cx="75.6" cy="629.1" r="2" fill="#050706"/>
+<text x="579.4" y="70.0" font-size="12" fill="#b8c7bd" text-anchor="middle" font-weight="600" >A</text>
+<text x="526.6" y="70.0" font-size="12" fill="#b8c7bd" text-anchor="middle" font-weight="600" >E</text>
+<text x="460.6" y="70.0" font-size="12" fill="#b8c7bd" text-anchor="middle" font-weight="600" >J</text>
+<text x="394.6" y="70.0" font-size="12" fill="#b8c7bd" text-anchor="middle" font-weight="600" >O</text>
+<text x="328.6" y="70.0" font-size="12" fill="#b8c7bd" text-anchor="middle" font-weight="600" >T</text>
+<text x="262.6" y="70.0" font-size="12" fill="#b8c7bd" text-anchor="middle" font-weight="600" >Y</text>
+<text x="196.6" y="70.0" font-size="12" fill="#b8c7bd" text-anchor="middle" font-weight="600" >AD</text>
+<text x="130.6" y="70.0" font-size="12" fill="#b8c7bd" text-anchor="middle" font-weight="600" >AI</text>
+<text x="64.6" y="70.0" font-size="12" fill="#b8c7bd" text-anchor="middle" font-weight="600" >AN</text>
+<text x="594.0" y="94.1" font-size="11" fill="#b8c7bd" text-anchor="start" font-weight="600" >1</text>
+<text x="594.0" y="146.9" font-size="11" fill="#b8c7bd" text-anchor="start" font-weight="600" >5</text>
+<text x="594.0" y="212.9" font-size="11" fill="#b8c7bd" text-anchor="start" font-weight="600" >10</text>
+<text x="594.0" y="278.9" font-size="11" fill="#b8c7bd" text-anchor="start" font-weight="600" >15</text>
+<text x="594.0" y="344.9" font-size="11" fill="#b8c7bd" text-anchor="start" font-weight="600" >20</text>
+<text x="594.0" y="410.9" font-size="11" fill="#b8c7bd" text-anchor="start" font-weight="600" >25</text>
+<text x="594.0" y="476.9" font-size="11" fill="#b8c7bd" text-anchor="start" font-weight="600" >30</text>
+<text x="594.0" y="542.9" font-size="11" fill="#b8c7bd" text-anchor="start" font-weight="600" >35</text>
+<text x="594.0" y="595.7" font-size="11" fill="#b8c7bd" text-anchor="start" font-weight="600" >39</text>
+<text x="568.4" y="656.1" font-size="11" fill="#b8c7bd" text-anchor="middle" font-weight="600" >A′</text>
+<text x="533.2" y="656.1" font-size="11" fill="#b8c7bd" text-anchor="middle" font-weight="600" >B′</text>
+<text x="498.0" y="656.1" font-size="11" fill="#b8c7bd" text-anchor="middle" font-weight="600" >C′</text>
+<text x="462.8" y="656.1" font-size="11" fill="#b8c7bd" text-anchor="middle" font-weight="600" >D′</text>
+<text x="427.6" y="656.1" font-size="11" fill="#b8c7bd" text-anchor="middle" font-weight="600" >E′</text>
+<text x="392.4" y="656.1" font-size="11" fill="#b8c7bd" text-anchor="middle" font-weight="600" >F′</text>
+<text x="357.2" y="656.1" font-size="11" fill="#b8c7bd" text-anchor="middle" font-weight="600" >G′</text>
+<text x="322.0" y="656.1" font-size="11" fill="#b8c7bd" text-anchor="middle" font-weight="600" >H′</text>
+<text x="286.8" y="656.1" font-size="11" fill="#b8c7bd" text-anchor="middle" font-weight="600" >I′</text>
+<text x="251.6" y="656.1" font-size="11" fill="#b8c7bd" text-anchor="middle" font-weight="600" >J′</text>
+<text x="216.4" y="656.1" font-size="11" fill="#b8c7bd" text-anchor="middle" font-weight="600" >K′</text>
+<text x="181.2" y="656.1" font-size="11" fill="#b8c7bd" text-anchor="middle" font-weight="600" >L′</text>
+<text x="146.0" y="656.1" font-size="11" fill="#b8c7bd" text-anchor="middle" font-weight="600" >M′</text>
+<text x="110.8" y="656.1" font-size="11" fill="#b8c7bd" text-anchor="middle" font-weight="600" >N′</text>
+<text x="75.6" y="656.1" font-size="11" fill="#b8c7bd" text-anchor="middle" font-weight="600" >O′</text>
+<text x="594.0" y="619.9" font-size="11" fill="#b8c7bd" text-anchor="start" font-weight="600" >40</text>
+<text x="594.0" y="633.1" font-size="11" fill="#b8c7bd" text-anchor="start" font-weight="600" >41</text>
+<line x1="582.0" y1="44" x2="62" y2="44" stroke="#FFE14D" stroke-width="2" marker-end="url(#arr)"/>
+<text x="322.0" y="36.0" font-size="13" fill="#f0f6ef" text-anchor="middle" font-weight="600" >columns A … Z, AA … AN, lettered right → left</text>
+<line x1="622.0" y1="82" x2="622.0" y2="596.5" stroke="#FFE14D" stroke-width="2" marker-end="url(#arr)"/>
+<text x="636.0" y="339.2" font-size="13" fill="#f0f6ef" text-anchor="middle" font-weight="600" transform="rotate(90 636.0 339.2)">rows 1 … 39, numbered top → bottom</text>
+<text x="322.0" y="680.1" font-size="12.5" fill="#9cb2a4" text-anchor="middle" font-weight="400" >Footboard: t-nuts 8" apart, columns A′ … O′ (right → left), rows 40 and 41</text>
+<circle cx="579.4" cy="90.1" r="5" fill="none" stroke="#FFE14D" stroke-width="2"/>
+<line x1="575.4" y1="93.1" x2="535.4" y2="138.1" stroke="#FFE14D" stroke-width="1.2"/>
+<rect x="507.4" y="127.1" width="26.0" height="19" rx="9.5" fill="#0f1512" opacity="0.85"/>
+<text x="530.4" y="141.1" font-size="12.5" fill="#FFE14D" text-anchor="end" font-weight="700" >A1</text>
+<circle cx="64.6" cy="90.1" r="5" fill="none" stroke="#FFE14D" stroke-width="2"/>
+<line x1="68.6" y1="93.1" x2="86.6" y2="112.1" stroke="#FFE14D" stroke-width="1.2"/>
+<rect x="88.6" y="101.1" width="35.0" height="19" rx="9.5" fill="#0f1512" opacity="0.85"/>
+<text x="92.6" y="115.1" font-size="12.5" fill="#FFE14D" text-anchor="start" font-weight="700" >AN1</text>
+<circle cx="579.4" cy="591.7" r="5" fill="none" stroke="#FFE14D" stroke-width="2"/>
+<line x1="575.4" y1="588.7" x2="553.4" y2="571.7" stroke="#FFE14D" stroke-width="1.2"/>
+<rect x="516.4" y="560.7" width="35.0" height="19" rx="9.5" fill="#0f1512" opacity="0.85"/>
+<text x="548.4" y="574.7" font-size="12.5" fill="#FFE14D" text-anchor="end" font-weight="700" >A39</text>
+<circle cx="64.6" cy="591.7" r="5" fill="none" stroke="#FFE14D" stroke-width="2"/>
+<line x1="68.6" y1="588.7" x2="86.6" y2="571.7" stroke="#FFE14D" stroke-width="1.2"/>
+<rect x="88.6" y="560.7" width="44.0" height="19" rx="9.5" fill="#0f1512" opacity="0.85"/>
+<text x="92.6" y="574.7" font-size="12.5" fill="#FFE14D" text-anchor="start" font-weight="700" >AN39</text>
+<path d="M214.0 193.7c2-8 12-11 18-6s7 10 1 13-17 3-19-7z" fill="#c9a77d" stroke="#f0e6d6" stroke-width="1"/>
+<line x1="233.0" y1="201.7" x2="269.0" y2="235.7" stroke="#f0f6ef" stroke-width="1.2"/>
+<rect x="263.0" y="229.7" width="170" height="40" rx="8" fill="#0f1512" opacity="0.9"/>
+<text x="273.0" y="246.7" font-size="12.5" fill="#f0f6ef" text-anchor="start" font-weight="700" >near AB9 → “Biscuit”</text>
+<text x="273.0" y="262.7" font-size="11" fill="#9cb2a4" text-anchor="start" font-weight="400" >name starts with the 2nd letter</text>
+<rect x="535.4" y="78.0" width="50.6" height="44.0" fill="none" stroke="#f0f6ef" stroke-width="1.2" stroke-dasharray="3 2"/>
+<clipPath id="ic"><rect x="700" y="112" width="276.0" height="240.0"/></clipPath>
+<rect x="700" y="112" width="276.0" height="240.0" fill="#132d25" stroke="#2f5a4b" stroke-width="1.5"/>
+<path d="M700 112H976.0V352.0" fill="none" stroke="#f0f6ef" stroke-width="2.5"/>
+<g clip-path="url(#ic)">
+<circle cx="940.0" cy="178.0" r="4" fill="#050706" stroke="#3d6152" stroke-width="1"/>
+<text x="940.0" y="199.0" font-size="12" fill="#b8c7bd" text-anchor="middle" font-weight="600" >A1</text>
+<circle cx="940.0" cy="250.0" r="4" fill="#050706" stroke="#3d6152" stroke-width="1"/>
+<text x="940.0" y="271.0" font-size="12" fill="#b8c7bd" text-anchor="middle" font-weight="600" >A2</text>
+<circle cx="940.0" cy="322.0" r="4" fill="#050706" stroke="#3d6152" stroke-width="1"/>
+<text x="940.0" y="343.0" font-size="12" fill="#b8c7bd" text-anchor="middle" font-weight="600" >A3</text>
+<circle cx="868.0" cy="178.0" r="4" fill="#050706" stroke="#3d6152" stroke-width="1"/>
+<text x="868.0" y="199.0" font-size="12" fill="#b8c7bd" text-anchor="middle" font-weight="600" >B1</text>
+<circle cx="868.0" cy="250.0" r="4" fill="#050706" stroke="#3d6152" stroke-width="1"/>
+<text x="868.0" y="271.0" font-size="12" fill="#b8c7bd" text-anchor="middle" font-weight="600" >B2</text>
+<circle cx="868.0" cy="322.0" r="4" fill="#050706" stroke="#3d6152" stroke-width="1"/>
+<text x="868.0" y="343.0" font-size="12" fill="#b8c7bd" text-anchor="middle" font-weight="600" >B3</text>
+<circle cx="796.0" cy="178.0" r="4" fill="#050706" stroke="#3d6152" stroke-width="1"/>
+<text x="796.0" y="199.0" font-size="12" fill="#b8c7bd" text-anchor="middle" font-weight="600" >C1</text>
+<circle cx="796.0" cy="250.0" r="4" fill="#050706" stroke="#3d6152" stroke-width="1"/>
+<text x="796.0" y="271.0" font-size="12" fill="#b8c7bd" text-anchor="middle" font-weight="600" >C2</text>
+<circle cx="796.0" cy="322.0" r="4" fill="#050706" stroke="#3d6152" stroke-width="1"/>
+<text x="796.0" y="343.0" font-size="12" fill="#b8c7bd" text-anchor="middle" font-weight="600" >C3</text>
+<circle cx="724.0" cy="178.0" r="4" fill="#050706" stroke="#3d6152" stroke-width="1"/>
+<text x="724.0" y="199.0" font-size="12" fill="#b8c7bd" text-anchor="middle" font-weight="600" >D1</text>
+<circle cx="724.0" cy="250.0" r="4" fill="#050706" stroke="#3d6152" stroke-width="1"/>
+<text x="724.0" y="271.0" font-size="12" fill="#b8c7bd" text-anchor="middle" font-weight="600" >D2</text>
+<circle cx="724.0" cy="322.0" r="4" fill="#050706" stroke="#3d6152" stroke-width="1"/>
+<text x="724.0" y="343.0" font-size="12" fill="#b8c7bd" text-anchor="middle" font-weight="600" >D3</text>
+</g>
+<circle cx="940.0" cy="178.0" r="7.5" fill="none" stroke="#FFE14D" stroke-width="2"/>
+<line x1="868.0" y1="172.0" x2="868.0" y2="82.0" stroke="#9cb2a4" stroke-width="0.8" stroke-dasharray="2 2"/>
+<line x1="940.0" y1="172.0" x2="940.0" y2="82.0" stroke="#9cb2a4" stroke-width="0.8" stroke-dasharray="2 2"/>
+<line x1="946.0" y1="178.0" x2="1004.0" y2="178.0" stroke="#9cb2a4" stroke-width="0.8" stroke-dasharray="2 2"/>
+<line x1="946.0" y1="250.0" x2="1004.0" y2="250.0" stroke="#9cb2a4" stroke-width="0.8" stroke-dasharray="2 2"/>
+<line x1="976.0" y1="112.0" x2="976.0" y2="82.0" stroke="#9cb2a4" stroke-width="0.8" stroke-dasharray="2 2"/>
+<line x1="976.0" y1="112.0" x2="1004.0" y2="112.0" stroke="#9cb2a4" stroke-width="0.8" stroke-dasharray="2 2"/>
+<line x1="868.0" y1="88.0" x2="940.0" y2="88.0" stroke="#f0f6ef" stroke-width="1.3" marker-start="url(#tick)" marker-end="url(#tick)"/>
+<text x="904.0" y="80.0" font-size="13" fill="#f0f6ef" text-anchor="middle" font-weight="700" >3"</text>
+<line x1="940.0" y1="88.0" x2="976.0" y2="88.0" stroke="#f0f6ef" stroke-width="1.3" marker-start="url(#tick)" marker-end="url(#tick)"/>
+<text x="958.0" y="80.0" font-size="13" fill="#f0f6ef" text-anchor="middle" font-weight="700" >1.5"</text>
+<line x1="998.0" y1="112.0" x2="998.0" y2="178.0" stroke="#f0f6ef" stroke-width="1.3" marker-start="url(#tick)" marker-end="url(#tick)"/>
+<text x="1006.0" y="150.0" font-size="13" fill="#f0f6ef" text-anchor="start" font-weight="700" >2.75"</text>
+<line x1="998.0" y1="178.0" x2="998.0" y2="250.0" stroke="#f0f6ef" stroke-width="1.3" marker-start="url(#tick)" marker-end="url(#tick)"/>
+<text x="1006.0" y="219.0" font-size="13" fill="#f0f6ef" text-anchor="start" font-weight="700" >3"</text>
+<text x="700.0" y="380.0" font-size="14" fill="#f0f6ef" text-anchor="start" font-weight="700" >Top-right corner, enlarged to scale</text>
+<text x="700.0" y="402.0" font-size="13" fill="#9cb2a4" text-anchor="start" font-weight="400" >A1 is the first t-nut. Holds can sit anywhere;</text>
+<text x="700.0" y="420.0" font-size="13" fill="#9cb2a4" text-anchor="start" font-weight="400" >each one records its nearest t-nut.</text>
+</svg>

@@ -288,15 +288,22 @@ select option { background: var(--surface); color: var(--text); }
   width: min(100%, calc(var(--board-max-h) * var(--board-ratio, 1)));
   margin: 0 auto;
 }
-.board-wrap { position: relative; }
-.board-wrap svg { display: block; width: 100%; height: auto; }
+/* The wall is drawn whole, at the zoom, and a transform moves it into this
+   frame (board.js): panning and pinching move the drawn wall on the GPU
+   instead of drawing it again. */
+.board-wrap { position: relative; aspect-ratio: var(--board-ratio, 1); overflow: hidden; }
+.board-wrap svg { position: absolute; top: 0; left: 0; width: 100%; height: 100%; transform-origin: 0 0; will-change: transform; }
 /* One finger scrolls the page as usual; pinches reach the board's own zoom.
    Zoomed in, a drag pans the board instead (board.js). */
 .board { touch-action: pan-y; }
 .board-wrap.zoomed .board { touch-action: none; }
-.board-wrap.zoomed .board:not([data-mode="place"]) { cursor: grab; }
-.board-wrap.panning .board:not([data-mode="place"]),
-.board-wrap.panning .board:not([data-mode="place"]) .hold { cursor: grabbing; }
+/* Only with a mouse: a cursor change restyles every part of the wall, and
+   Safari redraws it all for that, which a phone would feel mid-drag. */
+@media (hover: hover) and (pointer: fine) {
+  .board-wrap.zoomed .board:not([data-mode="place"]) { cursor: grab; }
+  .board-wrap.panning .board:not([data-mode="place"]),
+  .board-wrap.panning .board:not([data-mode="place"]) .hold { cursor: grabbing; }
+}
 
 /* zoom, on every view of the board: − 2.5× + (the level resets). It sits
    under the board, on its own row below the key, so it never covers the wall. */
@@ -446,6 +453,9 @@ select option { background: var(--surface); color: var(--text); }
   .board-pane, .panel { position: static; }
   .panel { max-height: none; overflow: visible; }
   .board-frame { --board-max-h: 70vh; }
+  /* The wall keeps its own layer, so a swipe between climbs (swipe.js) slides
+     the drawn wall instead of repainting it as the swipe starts and ends. */
+  .board-wrap { will-change: transform; }
 
   /* Pages other than the climb list scroll normally on phones. */
   body:not(.list-mode) .panel.panel-list { height: auto; overflow: visible; display: block; padding-bottom: var(--panel-pad); }
@@ -619,6 +629,9 @@ select option { background: var(--surface); color: var(--text); }
 .volumes, .volume-edges, .volume-faces { transition: opacity 0.15s; }
 .board.dim .volumes, .board.dim .volume-edges { opacity: var(--dimmed-opacity); }
 .board.dim .volume-faces { opacity: calc(var(--volume-face-opacity) * var(--dimmed-opacity)); }
+/* a new page or climb is drawn at once, without the fades (board.js) */
+.board.instant .hold, .board.instant .hold .body, .board.instant .role-ring,
+.board.instant .volumes, .board.instant .volume-edges, .board.instant .volume-faces { transition: none; }
 .face-draft { fill: none; stroke: var(--yuzu); stroke-width: 0.12; stroke-linejoin: round; stroke-dasharray: 0.5 0.35; }
 .volume.draft { opacity: 0.85; stroke: var(--yuzu); stroke-width: 0.25; stroke-linejoin: round; stroke-dasharray: 0.8 0.5; filter: none; }
 .volume-draft-line { fill: none; stroke: var(--yuzu); stroke-width: 0.25; stroke-dasharray: 0.8 0.5; }
@@ -1416,7 +1429,6 @@ input[type="range"]:disabled { opacity: 0.4; cursor: not-allowed; }
 .step-bar.list-bar { display: none; }
 @media (max-width: 900px) {
   .step-bar.list-bar { display: flex; }
-  .back-link.has-list-bar { display: none; }
 }
 .circuit-links { display: flex; flex-wrap: wrap; gap: 4px 14px; }
 

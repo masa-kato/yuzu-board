@@ -1,5 +1,6 @@
 import argparse
 import datetime
+import glob
 import json
 import math
 import os
@@ -7,6 +8,7 @@ import re
 import uuid
 
 from flask import Flask, abort, current_app, jsonify, request, send_from_directory
+from PIL import Image
 
 import db
 import geometry
@@ -25,6 +27,18 @@ SORT_KEYS = {
 }
 HERE = os.path.dirname(os.path.abspath(__file__))
 PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
+STORED_PNG_RE = re.compile(r"^[0-9a-f]{32}\.png$")
+# The board shows each hold image as a smaller copy, a number of pixels per
+# inch of the hold's size. A screen asks for what it needs to stay sharp at its
+# closest zoom (?ppi= on /api/holds) and gets the smallest of BOARD_PPI that
+# covers it: a phone, which stops at 2.5×, about 24; a retina laptop at 6×
+# about 62, so 64 (also the default).
+BOARD_PPI = (24, 32, 48, 64)
+BOARD_PX_STEP = 32
+BOARD_PX_MIN, BOARD_PX_MAX = 96, 2048
+BOARD_IMAGE_RE = re.compile(r"^([0-9a-f]{32})-(\d+)\.png$")
+# Image files never change: a new image gets a new name.
+IMAGE_MAX_AGE = 365 * 24 * 3600
 COLOR_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
 VOLUME_COLORS = ("black", "green")
 MAX_FACES = 50   # sub-polygons per volume
@@ -190,7 +204,7 @@ HOLD_SELECT = """SELECT id, name, x, y, tnut_col, tnut_row, image, size, rotatio
                         color, color_opacity, removed_at FROM holds"""
 
 
-def serialize_hold(h):
+def serialize_hold(h, ppi=BOARD_PPI[-1]):
     tx, ty = geometry.tnut_xy(h["tnut_col"], h["tnut_row"])
     return {
         "id": h["id"],
@@ -202,6 +216,7 @@ def serialize_hold(h):
         "grid": geometry.tnut_label(h["tnut_col"], h["tnut_row"]),
         "offset": round(math.hypot(h["x"] - tx, h["y"] - ty), 2),
         "image_url": "/uploads/holds/%s" % h["image"] if h["image"] else None,
+        "board_url": board_url(h["image"], h["size"], ppi),
         "size": h["size"],
         "rotation": h["rotation"],
         "color": h["color"],
@@ -289,6 +304,53 @@ def store_png(data):
     with open(os.path.join(upload_dir, filename), "wb") as f:
         f.write(data)
     return filename
+
+
+def board_ppi(asked):
+    """The smallest of BOARD_PPI that covers what a screen asked for (the
+    largest when it asks for more, or for nothing that reads as a number)."""
+    try:
+        asked = float(asked)
+    except (TypeError, ValueError):
+        return BOARD_PPI[-1]
+    return next((ppi for ppi in BOARD_PPI if ppi >= asked), BOARD_PPI[-1])
+
+
+def board_url(image, size, ppi=BOARD_PPI[-1]):
+    """The URL of a hold image's copy for the board, `ppi` pixels per inch of
+    the hold (see BOARD_PPI), or None when it has no image. The pixel size is
+    part of the name, so resizing a hold asks for a new copy."""
+    if not image or not STORED_PNG_RE.match(image):
+        return None
+    px = math.ceil(size * ppi / BOARD_PX_STEP) * BOARD_PX_STEP
+    px = min(BOARD_PX_MAX, max(BOARD_PX_MIN, px))
+    return "/uploads/holds/board/%s-%d.png" % (image[:-4], px)
+
+
+def make_board_image(source, target, px):
+    """Writes a copy of the PNG at `source` at most `px` on its longest side
+    (never larger than the original)."""
+    with Image.open(source) as im:
+        im = im.convert("RGBA")
+        im.thumbnail((px, px), Image.Resampling.LANCZOS)
+        os.makedirs(os.path.dirname(target), exist_ok=True)
+        # Written aside first, so a request at the same moment never gets half a file.
+        partial = "%s.%s.tmp" % (target, uuid.uuid4().hex)
+        im.save(partial, "PNG")
+    os.replace(partial, target)
+
+
+def remove_image(filename):
+    """Deletes an uploaded hold image and its copies for the board."""
+    upload_dir = current_app.config["UPLOAD_DIR"]
+    stem = os.path.splitext(filename)[0]
+    paths = [os.path.join(upload_dir, filename)]
+    paths += glob.glob(os.path.join(upload_dir, "board", glob.escape(stem) + "-*.png"))
+    for path in paths:
+        try:
+            os.remove(path)
+        except OSError:
+            pass
 
 
 def hold_impact(conn, hold_id):
@@ -612,7 +674,23 @@ def create_app(db_path=None, upload_dir=None):
 
     @app.get("/uploads/holds/<path:filename>")
     def hold_image(filename):
-        return send_from_directory(app.config["UPLOAD_DIR"], filename)
+        return send_from_directory(app.config["UPLOAD_DIR"], filename, max_age=IMAGE_MAX_AGE)
+
+    @app.get("/uploads/holds/board/<name>")
+    def board_image(name):
+        """A hold image's copy for the board, made the first time it's asked for."""
+        match = BOARD_IMAGE_RE.match(name)
+        px = int(match.group(2)) if match else 0
+        if px % BOARD_PX_STEP or not BOARD_PX_MIN <= px <= BOARD_PX_MAX:
+            abort(404)
+        upload_dir = app.config["UPLOAD_DIR"]
+        board_dir = os.path.join(upload_dir, "board")
+        if not os.path.exists(os.path.join(board_dir, name)):
+            source = os.path.join(upload_dir, match.group(1) + ".png")
+            if not os.path.exists(source):
+                abort(404)
+            make_board_image(source, os.path.join(board_dir, name), px)
+        return send_from_directory(board_dir, name, max_age=IMAGE_MAX_AGE)
 
     # ---- board & holds ----------------------------------------------------
 
@@ -626,7 +704,9 @@ def create_app(db_path=None, upload_dir=None):
 
     @app.get("/api/holds")
     def holds():
-        return jsonify([serialize_hold(h) for h in db.rows(db.get_db().execute(HOLD_SELECT + " ORDER BY id"))])
+        # ?ppi= sizes the board images for the screen asking (BOARD_PPI).
+        ppi = board_ppi(request.args.get("ppi"))
+        return jsonify([serialize_hold(h, ppi) for h in db.rows(db.get_db().execute(HOLD_SELECT + " ORDER BY id"))])
 
     @app.post("/api/holds")
     def create_hold():
@@ -663,10 +743,7 @@ def create_app(db_path=None, upload_dir=None):
         )
         conn.commit()
         if data is not None and old_image:
-            try:
-                os.remove(os.path.join(app.config["UPLOAD_DIR"], old_image))
-            except OSError:
-                pass
+            remove_image(old_image)
         return jsonify(serialize_hold(get_hold_or_404(conn, hold_id)))
 
     @app.get("/api/holds/<int:hold_id>/impact")
@@ -712,10 +789,7 @@ def create_app(db_path=None, upload_dir=None):
         conn.execute("DELETE FROM holds WHERE id = ?", (hold_id,))
         conn.commit()
         if image and not conn.execute("SELECT 1 FROM holds WHERE image = ?", (image,)).fetchone():
-            try:
-                os.remove(os.path.join(app.config["UPLOAD_DIR"], image))
-            except OSError:
-                pass
+            remove_image(image)
         return jsonify({"deleted": hold_id})
 
     @app.put("/api/holds/color")

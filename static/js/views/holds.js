@@ -1,4 +1,4 @@
-import { tintFilter, updateTint } from '../board.js';
+import { boardImage, tintFilter, updateTint } from '../board.js';
 import { colorField, colorName } from '../palette.js';
 import { append, confirmDialog, dialog, field, h, icon, svg } from '../ui.js';
 
@@ -72,7 +72,7 @@ function thumb(hold, size = 40) {
   return svg('svg', { class: 'thumb', viewBox: '-1 -1 2 2', width: size, height: size, 'aria-hidden': 'true' },
     svg('defs', {}, tintFilter(id, hold.color)),
     svg('g', { transform: `rotate(${hold.rotation})` },
-      svg('image', { href: hold.image_url, x: -0.92, y: -0.92, width: 1.84, height: 1.84, preserveAspectRatio: 'xMidYMid meet', filter: `url(#${id})` })));
+      svg('image', { href: boardImage(hold), x: -0.92, y: -0.92, width: 1.84, height: 1.84, preserveAspectRatio: 'xMidYMid meet', filter: `url(#${id})` })));
 }
 
 function colorLabel(hold, colors) {

@@ -201,6 +201,83 @@ class HoldApiTest(unittest.TestCase):
                         content_type="multipart/form-data")
         self.assertEqual(len(os.listdir(self.upload_dir)), 1)
 
+    # board images ----------------------------------------------------------
+
+    def get_png_size(self, url):
+        res = self.client.get(url)
+        self.assertEqual(res.status_code, 200)
+        self.assertGreaterEqual(res.cache_control.max_age, 30 * 24 * 3600)
+        size = struct.unpack(">II", res.data[16:24])
+        res.close()
+        return size
+
+    def board_copies(self):
+        board_dir = os.path.join(self.upload_dir, "board")
+        return sorted(os.listdir(board_dir)) if os.path.isdir(board_dir) else []
+
+    def test_board_image_is_a_smaller_copy(self):
+        x, y = geometry.tnut_xy(5, 3)
+        hold = self.upload(image=png_bytes(400, 300), x=x, y=y, size=2, name="Ferret")
+        self.assertEqual(self.get_png_size(hold["image_url"]), (400, 300))
+        # 64 px per inch of the hold's size: 2" gets 128 px on its longest side.
+        self.assertTrue(hold["board_url"].endswith("-128.png"), hold["board_url"])
+        self.assertEqual(self.get_png_size(hold["board_url"]), (128, 96))
+        self.assertEqual(len(self.board_copies()), 1)
+        # Resizing the hold asks for another copy, rounded up to 32 px steps.
+        res = self.client.put("/api/holds/%d" % hold["id"], json={"size": 3.1})
+        self.assertTrue(res.get_json()["board_url"].endswith("-224.png"))
+        # Never larger than the original, nor smaller than the minimum.
+        res = self.client.put("/api/holds/%d" % hold["id"], json={"size": 30})
+        self.assertEqual(self.get_png_size(res.get_json()["board_url"]), (400, 300))
+        res = self.client.put("/api/holds/%d" % hold["id"], json={"size": 0.5})
+        self.assertTrue(res.get_json()["board_url"].endswith("-96.png"))
+        # Placeholder holds have no image.
+        self.assertIsNone(self.holds()[1]["board_url"])
+
+    def test_board_images_sized_for_the_screen(self):
+        x, y = geometry.tnut_xy(5, 3)
+        hold_id = self.upload(image=png_bytes(800, 600), x=x, y=y, size=6, name="Ferret")["id"]
+
+        def board_url(query=""):
+            holds = self.client.get("/api/holds" + query).get_json()
+            return next(h for h in holds if h["id"] == hold_id)["board_url"]
+
+        # The smallest density on offer that covers what the screen asked for:
+        # 6" at 24 px per inch is 144 px, rounded up to 160.
+        self.assertTrue(board_url("?ppi=22").endswith("-160.png"))
+        self.assertTrue(board_url("?ppi=24").endswith("-160.png"))
+        self.assertTrue(board_url("?ppi=25").endswith("-192.png"))     # 32 px per inch
+        self.assertTrue(board_url("?ppi=40").endswith("-288.png"))     # 48
+        # More than the largest, nothing, or nonsense: the largest (64).
+        for query in ["?ppi=200", "", "?ppi=lots", "?ppi=nan"]:
+            self.assertTrue(board_url(query).endswith("-384.png"), query)
+        self.assertEqual(self.get_png_size(board_url("?ppi=22")), (160, 120))
+
+    def test_board_image_names_are_checked(self):
+        x, y = geometry.tnut_xy(5, 3)
+        stem = self.upload(x=x, y=y, name="Ferret")["image_url"].rsplit("/", 1)[1][:-4]
+        for name in ["%s-100.png" % stem, "%s-64.png" % stem, "%s-4096.png" % stem,
+                     "%s.png" % stem, "%s-128.png" % ("0" * 32), "..%2f..%2fapp.py"]:
+            res = self.client.get("/uploads/holds/board/" + name)
+            self.assertEqual(res.status_code, 404, name)
+            res.close()
+        self.assertEqual(self.board_copies(), [])
+
+    def test_board_copies_go_with_their_image(self):
+        x, y = geometry.tnut_xy(5, 3)
+        hold = self.upload(x=x, y=y, name="Ferret")
+        self.client.get(hold["board_url"]).close()
+        self.assertEqual(len(self.board_copies()), 1)
+        # Replacing the image deletes the old one's copies.
+        res = self.client.put("/api/holds/%d" % hold["id"], data={"image": (io.BytesIO(png_bytes()), "g.png")},
+                              content_type="multipart/form-data")
+        self.client.get(res.get_json()["board_url"]).close()
+        self.assertEqual(self.board_copies(), [res.get_json()["board_url"].rsplit("/", 1)[1]])
+        # So does deleting the hold for good.
+        self.client.delete("/api/holds/%d" % hold["id"])
+        self.client.delete("/api/holds/%d/permanent" % hold["id"])
+        self.assertEqual(self.board_copies(), [])
+
     # removal & legacy ------------------------------------------------------
 
     def test_removal_retires_or_greys_out(self):

@@ -20,15 +20,33 @@ async function climbSequence(ctx, route) {
   }
 }
 
+// Stepping to the previous / next climb (a swipe or the arrows) shouldn't wait
+// on the network: the climbs either side are fetched ahead, and the circuit
+// being stepped through is reused. Only a step uses them, for the climber they
+// were fetched for and for a minute at most; anything else fetches afresh.
+const AHEAD_MS = 60_000;
+let ahead = new Map();     // route id -> { at, me, data: a promise of the route, or of null if the fetch failed }
+let circuitAhead = null;   // { at, me, circuit } the circuit last fetched
+let steppedTo = null;      // the route id a step is on its way to
+
+const fresh = (entry, me) => !!entry && entry.me === me && Date.now() - entry.at < AHEAD_MS;
+
 export async function render(root, ctx, { routeId, circuitId = null }) {
   const { state, board } = ctx;
+  const stepped = steppedTo === routeId;
+  const early = stepped && fresh(ahead.get(routeId), state.me) ? ahead.get(routeId).data : null;
+  const sameCircuit = stepped && !!circuitId && fresh(circuitAhead, state.me) && circuitAhead.circuit.id === circuitId;
+  steppedTo = null;
+  ahead = new Map();
+  const fetchRoute = () => ctx.api.route(routeId, state.me);
   const [route, circuit] = await Promise.all([
-    ctx.api.route(routeId, state.me),
+    early ? early.then((r) => r || fetchRoute()) : fetchRoute(),
     // A circuit that has gone just drops the circuit context.
-    circuitId ? ctx.api.circuit(circuitId, state.me).catch(() => null) : null,
+    sameCircuit ? circuitAhead.circuit : circuitId ? ctx.api.circuit(circuitId, state.me).catch(() => null) : null,
   ]);
+  if (circuit && !sameCircuit) circuitAhead = { at: Date.now(), me: state.me, circuit };
   if (ctx.stale()) return;
-  board.setRoute(route.holds);
+  board.setRoute(route.holds, { instant: true });
   consumeSwipe(ctx.boardEl);      // slide in, when a swipe brought us here
   state.lastRouteId = route.id;   // the climbs list marks it when you come back
 
@@ -54,7 +72,9 @@ export async function render(root, ctx, { routeId, circuitId = null }) {
   const neighbour = (dir) => (order ? order.ids[order.at + dir] : undefined);
   const stepTo = (dir) => {
     const id = neighbour(dir);
-    if (id) ctx.go(order.link(id));
+    if (!id) return;
+    steppedTo = id;
+    ctx.go(order.link(id));
   };
 
   const familySelect = h('select', {
@@ -230,9 +250,9 @@ export async function render(root, ctx, { routeId, circuitId = null }) {
     });
   } else {
     const [listHash, listName, linkText] = route.legacy ? ['#/legacy', 'Legacy', 'Legacy routes'] : ['#/climbs', 'Climbs', 'All climbs'];
-    // Phones swap the back link for the list bar, when the climb is in the list.
+    // Phones also get the list bar under the back link, when the climb is in the list.
     back = [
-      h('button', { type: 'button', class: `back-link${order ? ' has-list-bar' : ''}`, onClick: () => ctx.go(listHash) }, icon('arrow-left', { size: 15 }), linkText),
+      h('button', { type: 'button', class: 'back-link', onClick: () => ctx.go(listHash) }, icon('arrow-left', { size: 15 }), linkText),
       order && stepBar({ kind: 'list-bar', title: listName, label: `${listName} list`, back: () => ctx.go(listHash), backTitle: `Back to ${listName}` }),
     ];
   }
@@ -292,9 +312,17 @@ export async function render(root, ctx, { routeId, circuitId = null }) {
       else stepTo(dir);
     },
   });
+  // Once the page has slid in, fetch the climbs either side.
+  const fetchAhead = order && setTimeout(() => {
+    if (ctx.stale()) return;
+    for (const id of [neighbour(-1), neighbour(1)]) {
+      if (id && !ahead.has(id)) ahead.set(id, { at: Date.now(), me: state.me, data: ctx.api.route(id, state.me).catch(() => null) });
+    }
+  }, 300);
   return {
     destroy() {
       if (stopSwipe) stopSwipe();
+      clearTimeout(fetchAhead);
     },
   };
 }

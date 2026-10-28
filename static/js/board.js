@@ -3,8 +3,19 @@
 import { ROLES, h, icon, svg } from './ui.js';
 
 const MARGIN = 4.5;     // room around the wall for the grid labels
-const MAX_ZOOM = 6;     // the closest view shows about 7 columns
+// The closest view: 6× (about 7 columns) with a mouse, 2.5× on touch screens.
+const TOUCH_SCREEN = window.matchMedia('(pointer: coarse)');
+const maxZoom = () => (TOUCH_SCREEN.matches ? 2.5 : 6);
 const ZOOM_STEP = 1.6;  // per zoom button / key press
+const SETTLE_DELAY = 150;  // ms after the last wheel zoom before the wall is drawn again
+// A quick pan glides on: its speed over the last GLIDE_WINDOW ms (if the finger
+// didn't pause for GLIDE_PAUSE before lifting) falls by 1/e every GLIDE_TAU ms,
+// as iOS scrolling does, until it's below GLIDE_STOP. Speeds in px per ms.
+const GLIDE_WINDOW = 100;
+const GLIDE_PAUSE = 50;
+const GLIDE_TAU = 325;
+const GLIDE_MIN = 0.3;
+const GLIDE_STOP = 0.02;
 const VERTEX_PX = 6;    // volume corner handles: radius on screen, in CSS pixels
 const HOLD_R = 0.8;     // proxy hold circle
 const RING_R = 1.3;     // picked / hover highlight; t-nuts are 3" apart so rings never touch
@@ -38,6 +49,18 @@ function toRoleMap(holds) {
 
 export function holdTitle(hold) {
   return hold.removed ? `${hold.name} (removed)` : hold.name;
+}
+
+// A hold's image sized for the board on this screen (app.py makes it from the
+// upload), a fraction of the original's pixels but still sharp at the closest zoom.
+export const boardImage = (hold) => hold.board_url || hold.image_url;
+
+// Image pixels per inch of hold this screen needs for that: phones, which stop
+// at 2.5×, need far fewer than a laptop at 6×. The board is never wider than
+// the screen's short side.
+export function imagePpi(spec) {
+  const shortSide = Math.min(screen.width, screen.height);
+  return Math.ceil((shortSide * (window.devicePixelRatio || 1) * maxZoom()) / (spec.width + 2 * MARGIN));
 }
 
 // Every hold's color shows at one shared opacity, set by the slider
@@ -332,7 +355,7 @@ export function createBoard(container, spec, holds, { onHoldClick, onHoldHover, 
       svg('title', {}, holdTitle(hold)));
     if (hold.image_url) {
       const s = hold.size;
-      const image = svg('image', { href: hold.image_url, x: -s / 2, y: -s / 2, width: s, height: s, preserveAspectRatio: 'xMidYMid meet' });
+      const image = svg('image', { href: boardImage(hold), x: -s / 2, y: -s / 2, width: s, height: s, preserveAspectRatio: 'xMidYMid meet' });
       if (hold.color) {
         const id = `tint-h${hold.id}`;
         tintDefs.append(tintFilter(id, hold.color));
@@ -353,7 +376,7 @@ export function createBoard(container, spec, holds, { onHoldClick, onHoldHover, 
     if (!hold.image_url) return svg('circle', { cx: hold.x, cy: hold.y, r: HOLD_R, fill: '#000' });
     const s = hold.size;
     return svg('g', { transform: `translate(${hold.x} ${hold.y}) rotate(${hold.rotation})` },
-      svg('image', { href: hold.image_url, x: -s / 2, y: -s / 2, width: s, height: s, preserveAspectRatio: 'xMidYMid meet', filter: imageFilter }));
+      svg('image', { href: boardImage(hold), x: -s / 2, y: -s / 2, width: s, height: s, preserveAspectRatio: 'xMidYMid meet', filter: imageFilter }));
   }
 
   // The hold in black, for the hole mask.
@@ -370,27 +393,63 @@ export function createBoard(container, spec, holds, { onHoldClick, onHoldHover, 
     const unlit = (role) => !!spotlit && !!role && role !== spotlit;
     for (const [id, g] of nodes) {
       const role = active.get(id);
-      if (role) g.dataset.role = role;
-      else delete g.dataset.role;
+      if (g.dataset.role !== role) {
+        if (role) g.dataset.role = role;
+        else delete g.dataset.role;
+      }
       g.classList.toggle('unlit', unlit(role));
       g.classList.toggle('picked', picked.has(id));
       g.classList.toggle('editing', id === hiddenId);
     }
     const shownRings = [...active].filter(([id]) => holdById.has(id) && id !== hiddenId).map(([id, role]) => {
       const ring = ringFor(id);
-      ring.setAttribute('filter', `url(#ring-${role})`);
+      const filter = `url(#ring-${role})`;
+      if (ring.getAttribute('filter') !== filter) ring.setAttribute('filter', filter);
       ring.classList.toggle('unlit', unlit(role));
       return ring;
     });
-    ringLayer.replaceChildren(...shownRings);
+    // Nodes are only moved when their place changes: a moved node loses what
+    // the browser has drawn for it, so it works out its filters all over
+    // again. Going from one climb to the next moves just the holds of the two.
+    const shown = new Set(shownRings);
+    [...ringLayer.children].filter((ring) => !shown.has(ring)).forEach((ring) => ring.remove());
+    let at = ringLayer.firstChild;
+    for (const ring of shownRings) {
+      if (ring === at) at = at.nextSibling;
+      else ringLayer.insertBefore(ring, at);
+    }
     // The holds on the problem are drawn last, and the rings just under them,
     // so a neighbour off the problem never covers a ring, and a hold on the
-    // problem always shows over its neighbours' rings.
-    const order = [...nodes].filter(([id]) => !active.get(id)).map(([, g]) => g);
-    order.push(ringLayer, ...[...nodes].filter(([id]) => active.get(id)).map(([, g]) => g));
-    if (order.some((g, i) => holdLayer.children[i] !== g)) holdLayer.append(...order);
+    // problem always shows over its neighbours' rings. Each group keeps the
+    // wall's order.
+    at = holdLayer.firstChild;
+    for (const [id, g] of nodes) {
+      if (active.get(id)) continue;
+      // Step over holds just put on the problem; the next loop moves them.
+      while (at !== ringLayer && active.get(Number(at.dataset.id))) at = at.nextSibling;
+      if (g === at) at = at.nextSibling;
+      else holdLayer.insertBefore(g, at);
+    }
+    at = ringLayer.nextSibling;
+    for (const [id, g] of nodes) {
+      if (!active.get(id)) continue;
+      if (g === at) at = at.nextSibling;
+      else holdLayer.insertBefore(g, at);
+    }
     // The hold being moved uncovers its old hole.
-    for (const [id, cover] of covers) cover.style.display = id === hiddenId ? 'none' : '';
+    for (const [id, cover] of covers) {
+      const display = id === hiddenId ? 'none' : '';
+      if (cover.style.display !== display) cover.style.display = display;
+    }
+  }
+
+  // Paints without the holds' fades (app.css), for a new page or climb: a
+  // fade would repaint the wall on every frame while the page slides in.
+  function paintNow() {
+    root.classList.add('instant');
+    paint();
+    root.getBoundingClientRect();   // apply the new look while the fades are off
+    root.classList.remove('instant');
   }
 
   function setHolds(list) {
@@ -398,11 +457,12 @@ export function createBoard(container, spec, holds, { onHoldClick, onHoldHover, 
     nodes.clear();
     rings.clear();
     tintDefs.replaceChildren();
+    ringLayer.replaceChildren();
     holdLayer.replaceChildren(...list.map((hold) => {
       const g = holdNode(hold);
       nodes.set(hold.id, g);
       return g;
-    }));
+    }), ringLayer);
     // Removed holds are off the wall, so their holes show again.
     covers.clear();
     holeCovers.replaceChildren(...list.filter((hold) => !hold.removed).map((hold) => {
@@ -427,12 +487,22 @@ export function createBoard(container, spec, holds, { onHoldClick, onHoldHover, 
   holdLayer.addEventListener('pointerleave', () => onHoldHover?.(null));
 
   // ---- zoom (every view) ------------------------------------------------------
-  // Zooming narrows the viewBox; the SVG keeps its size and aspect ratio, and
-  // toWall() goes through the screen transform, so placement stays exact.
+  // The SVG always holds the whole wall, drawn at `drawnK` times the size of
+  // its frame (the container, which clips it), and a CSS transform moves it to
+  // show `view`. Moving the drawn wall is the GPU's job, so panning never
+  // redraws it. While a zoom is under way the drawn wall is stretched (a little
+  // soft when enlarged), and settle() draws it again once the zoom stops.
+  // toWall() measures from the frame, so placement stays exact.
   const base = { x: -MARGIN, y: -MARGIN, w: viewW, h: viewH };
   let view = { ...base };
   let goal = view;    // where the view is heading (differs from `view` mid-animation)
-  let viewAnim = 0;
+  let viewAnim = 0;   // a zoom animation or glide under way
+  let gliding = false;
+  let drawnK = 1;     // the zoom the wall is drawn at
+  let placed = '';    // the transform last written
+  let settleTimer = 0;
+  let outlineKey = '';   // the screen size and zoom sizeOutlines() last sized for
+  const frame = { w: container.getBoundingClientRect().width };   // CSS pixels
   const zoomLevel = () => base.w / view.w;
   const zoomed = () => zoomLevel() > 1.001;
   const reducedMotion = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -457,7 +527,7 @@ export function createBoard(container, spec, holds, { onHoldClick, onHoldHover, 
   (zoomHost || container).append(opacityControl, zoomControls);
 
   function clampView(v) {
-    const w = Math.min(base.w, Math.max(base.w / MAX_ZOOM, v.w));
+    const w = Math.min(base.w, Math.max(base.w / maxZoom(), v.w));
     const ht = (w * base.h) / base.w;
     return {
       x: Math.min(base.x + base.w - w, Math.max(base.x, v.x)),
@@ -467,29 +537,66 @@ export function createBoard(container, spec, holds, { onHoldClick, onHoldHover, 
     };
   }
 
+  // Moves the drawn wall to show `view`: a transform, so nothing is redrawn.
+  function place() {
+    const k = zoomLevel();
+    const px = (k * frame.w) / base.w;   // screen pixels per wall inch
+    const transform = `translate(${-(view.x - base.x) * px}px, ${-(view.y - base.y) * px}px) scale(${k / drawnK})`;
+    if (transform !== placed) root.style.transform = placed = transform;
+  }
+
+  // Draws the wall again at the zoom it has come to. A pinch settles when its
+  // fingers lift. The frame's `zoomed` class changes only here too: it changes
+  // the wall's touch-action (and, with a mouse, its cursor), and Safari
+  // redraws the whole wall for that, so it goes with this redraw rather than
+  // adding one mid-gesture.
+  function settle() {
+    clearTimeout(settleTimer);
+    const k = zoomLevel();
+    if (pinch || k === drawnK) return;
+    drawnK = k;
+    root.style.width = root.style.height = `${k * 100}%`;
+    root.style.setProperty('--zoom', k);   // keeps grid lines hairline (app.css)
+    container.classList.toggle('zoomed', zoomed());
+    sizeVertices();
+    sizeOutlines();
+    place();
+  }
+
+  // For zooms that come in many small steps (a wheel or trackpad pinch).
+  function settleSoon() {
+    clearTimeout(settleTimer);
+    settleTimer = setTimeout(settle, SETTLE_DELAY);
+  }
+
+  // Stops a zoom animation or glide where it is.
+  function stopMoving() {
+    cancelAnimationFrame(viewAnim);
+    gliding = false;
+    goal = view;
+  }
+
   // `final` is false only for the in-between frames of an animation.
   function applyView(v, final = true) {
     view = clampView(v);
     if (final) goal = view;
-    root.setAttribute('viewBox', `${view.x} ${view.y} ${view.w} ${view.h}`);
+    place();
     const k = zoomLevel();
-    root.style.setProperty('--zoom', k);   // keeps grid lines hairline (app.css)
-    zoomReset.textContent = `${Math.round(k * 10) / 10}×`;
+    const level = `${Math.round(k * 10) / 10}×`;
+    if (zoomReset.textContent !== level) zoomReset.textContent = level;
     zoomOut.disabled = !zoomed();
-    zoomIn.disabled = k >= MAX_ZOOM - 0.001;
-    container.classList.toggle('zoomed', zoomed());
+    zoomIn.disabled = k >= maxZoom() - 0.001;
     zoomControls.classList.toggle('zoomed', zoomed());
-    sizeVertices();
-    sizeOutlines();
   }
 
   applyView(base);
 
   function animateTo(v, animate) {
-    cancelAnimationFrame(viewAnim);
+    stopMoving();
     const target = clampView(v);
     if (!animate || reducedMotion()) {
       applyView(target);
+      settle();
       return;
     }
     goal = target;
@@ -500,21 +607,22 @@ export function createBoard(container, spec, holds, { onHoldClick, onHoldHover, 
       const e = 1 - (1 - t) ** 3;
       applyView({ x: from.x + (target.x - from.x) * e, y: from.y + (target.y - from.y) * e, w: from.w + (target.w - from.w) * e, h: 0 }, t >= 1);
       if (t < 1) viewAnim = requestAnimationFrame(step);
+      else settle();
     };
     viewAnim = requestAnimationFrame(step);
   }
 
-  // Zoom to `k`, keeping wall point (fx, fy) where it is on screen.
-  function zoomAt(k, fx, fy, animate = false) {
-    const w = base.w / Math.min(MAX_ZOOM, Math.max(1, k));
+  // The view at zoom `k` that keeps wall point (fx, fy) where it is on screen.
+  function zoomAt(k, fx, fy) {
+    const w = base.w / Math.min(maxZoom(), Math.max(1, k));
     const ht = (w * base.h) / base.w;
-    animateTo({ x: fx - ((fx - view.x) / view.w) * w, y: fy - ((fy - view.y) / view.h) * ht, w, h: ht }, animate);
+    return { x: fx - ((fx - view.x) / view.w) * w, y: fy - ((fy - view.y) / view.h) * ht, w, h: ht };
   }
 
   // Buttons and keys: zoom around the centre of what is shown (or about to be,
   // when a zoom is still animating), so quick repeated presses add up.
   function zoomBy(factor) {
-    const w = base.w / Math.min(MAX_ZOOM, Math.max(1, (base.w / goal.w) * factor));
+    const w = base.w / Math.min(maxZoom(), Math.max(1, (base.w / goal.w) * factor));
     const ht = (w * base.h) / base.w;
     const cx = goal.x + goal.w / 2;
     const cy = goal.y + goal.h / 2;
@@ -534,10 +642,12 @@ export function createBoard(container, spec, holds, { onHoldClick, onHoldHover, 
     animateTo({ ...view, x: x - view.w / 2, y: y - view.h / 2 }, true);
   }
 
-  // Wall inches under a screen point.
+  // Wall inches under a screen point, measured from the frame (the drawn wall
+  // is larger, and moved by a transform).
   const toWall = (e) => {
-    const p = new DOMPoint(e.clientX, e.clientY).matrixTransform(root.getScreenCTM().inverse());
-    return { x: p.x, y: p.y };
+    const r = container.getBoundingClientRect();
+    const perPx = view.w / r.width;
+    return { x: view.x + (e.clientX - r.left) * perPx, y: view.y + (e.clientY - r.top) * perPx };
   };
 
   // Ctrl/⌘ + wheel (also a trackpad pinch) zooms at the pointer, in every view;
@@ -546,12 +656,16 @@ export function createBoard(container, spec, holds, { onHoldClick, onHoldHover, 
     const lines = e.deltaMode === 1 ? 16 : 1;
     if (e.ctrlKey || e.metaKey) {
       e.preventDefault();
+      stopMoving();
       const p = toWall(e);
-      zoomAt(zoomLevel() * Math.exp(-e.deltaY * lines * 0.01), p.x, p.y);
+      applyView(zoomAt(zoomLevel() * Math.exp(-e.deltaY * lines * 0.01), p.x, p.y));
+      settleSoon();
     } else if (zoomed()) {
       e.preventDefault();
-      const perPx = view.w / root.getBoundingClientRect().width;
-      animateTo({ ...view, x: view.x + e.deltaX * lines * perPx, y: view.y + e.deltaY * lines * perPx });
+      stopMoving();
+      const perPx = view.w / frame.w;
+      applyView({ ...view, x: view.x + e.deltaX * lines * perPx, y: view.y + e.deltaY * lines * perPx });
+      settleSoon();   // in case it cut a zoom short
     }
   }, { passive: false });
 
@@ -581,7 +695,7 @@ export function createBoard(container, spec, holds, { onHoldClick, onHoldHover, 
   let settling = false;        // a finger left over from a pinch: ignore it until lifted
   let last = null;             // latest pointer position while dragging
   let edgeFrame = 0;
-  let pan = null;              // { id, at, view, moved } a press that may turn into a pan
+  let pan = null;              // { id, at, view, moved, trail } a press that may turn into a pan
   let swallowClick = false;    // the click after a pan or pinch is not a tap on a hold
 
   const capture = (id) => {
@@ -601,7 +715,7 @@ export function createBoard(container, spec, holds, { onHoldClick, onHoldHover, 
   // one screen pixel spans there (so hit areas feel the same at any zoom).
   function report(type, at) {
     const p = toWall(at);
-    p.px = view.w / root.getBoundingClientRect().width;
+    p.px = view.w / frame.w;
     p.touch = !!at.touch;
     onWallPointer?.(type, p);
   }
@@ -626,12 +740,41 @@ export function createBoard(container, spec, holds, { onHoldClick, onHoldHover, 
     container.classList.remove('panning');
   }
 
+  // A quick pan keeps going once released, slowing down as a scroll does.
+  // `trail` is the pan's last few moves, `upAt` when the finger lifted.
+  function glide(trail, upAt) {
+    const a = trail[0];
+    const b = trail[trail.length - 1];
+    if (reducedMotion() || b.t <= a.t || upAt - b.t > GLIDE_PAUSE) return;
+    let vx = (b.x - a.x) / (b.t - a.t);   // screen pixels per ms
+    let vy = (b.y - a.y) / (b.t - a.t);
+    if (Math.hypot(vx, vy) < GLIDE_MIN) return;
+    gliding = true;
+    let prev = upAt;
+    const step = (now) => {
+      const decay = Math.exp(-Math.max(0, now - prev) / GLIDE_TAU);
+      const travel = GLIDE_TAU * (1 - decay);   // how far one px/ms carries over this frame
+      prev = now;
+      const perPx = view.w / frame.w;
+      const before = view;
+      applyView({ ...view, x: view.x - vx * travel * perPx, y: view.y - vy * travel * perPx }, false);
+      // Against an edge, that way stops at once.
+      if (view.x === before.x) vx = 0;
+      if (view.y === before.y) vy = 0;
+      vx *= decay;
+      vy *= decay;
+      if (Math.hypot(vx, vy) > GLIDE_STOP) viewAnim = requestAnimationFrame(step);
+      else stopMoving();
+    };
+    viewAnim = requestAnimationFrame(step);
+  }
+
   // While dragging near the board's edge, zoomed in: pan that way, and keep
   // the hold under the pointer.
   function edgePan() {
     edgeFrame = 0;
     if (!dragging || !zoomed() || !last) return;
-    const r = root.getBoundingClientRect();
+    const r = container.getBoundingClientRect();
     const band = 0.08;
     const push = (f) => Math.max(-1, Math.min(1, f < band ? (f - band) / band : f > 1 - band ? (f - 1 + band) / band : 0));
     const dx = push((last.clientX - r.left) / r.width);
@@ -660,7 +803,7 @@ export function createBoard(container, spec, holds, { onHoldClick, onHoldHover, 
       pending = null;
       if (dragging) endDrag(last);
       endPan();
-      cancelAnimationFrame(viewAnim);
+      stopMoving();
       touches.forEach((_, id) => capture(id));
       const { dist, mid } = spread();
       pinch = { dist, k: zoomLevel(), anchor: toWall(mid) };
@@ -680,7 +823,10 @@ export function createBoard(container, spec, holds, { onHoldClick, onHoldHover, 
     swallowClick = false;
     if (zoomed()) {
       if (e.pointerType === 'mouse') e.preventDefault();   // no text selection while dragging
-      pan = { id: e.pointerId, at, view: { ...view }, moved: false };
+      // A touch stops a glide, as on a scrolling page, and isn't a tap on a hold.
+      if (gliding) swallowClick = true;
+      stopMoving();
+      pan = { id: e.pointerId, at, view: { ...view }, moved: false, trail: [{ t: e.timeStamp, x: e.clientX, y: e.clientY }] };
     }
   });
 
@@ -692,8 +838,8 @@ export function createBoard(container, spec, holds, { onHoldClick, onHoldHover, 
       // Zoom with the fingers' spread; keep the wall point that started under
       // their midpoint under it, so moving both fingers pans.
       const { dist, mid } = spread();
-      const r = root.getBoundingClientRect();
-      const w = base.w / Math.min(MAX_ZOOM, Math.max(1, (pinch.k * dist) / pinch.dist));
+      const r = container.getBoundingClientRect();
+      const w = base.w / Math.min(maxZoom(), Math.max(1, (pinch.k * dist) / pinch.dist));
       const ht = (w * base.h) / base.w;
       applyView({ x: pinch.anchor.x - ((mid.clientX - r.left) / r.width) * w, y: pinch.anchor.y - ((mid.clientY - r.top) / r.height) * ht, w, h: ht });
       return;
@@ -701,6 +847,7 @@ export function createBoard(container, spec, holds, { onHoldClick, onHoldHover, 
     if (pan && pan.id === e.pointerId) {
       if (e.pointerType === 'mouse' && !e.buttons) {
         endPan();   // released somewhere we didn't hear about
+        settle();
         return;
       }
       const dx = at.clientX - pan.at.clientX;
@@ -712,8 +859,10 @@ export function createBoard(container, spec, holds, { onHoldClick, onHoldHover, 
         capture(e.pointerId);
         container.classList.add('panning');
       }
-      const perPx = pan.view.w / root.getBoundingClientRect().width;
+      const perPx = pan.view.w / frame.w;
       applyView({ ...pan.view, x: pan.view.x - dx * perPx, y: pan.view.y - dy * perPx });
+      pan.trail.push({ t: e.timeStamp, x: e.clientX, y: e.clientY });
+      while (pan.trail.length > 2 && e.timeStamp - pan.trail[0].t > GLIDE_WINDOW) pan.trail.shift();
       return;
     }
     if (pending && pending.id === e.pointerId && Math.hypot(at.clientX - pending.at.clientX, at.clientY - pending.at.clientY) > 6) {
@@ -738,11 +887,17 @@ export function createBoard(container, spec, holds, { onHoldClick, onHoldHover, 
       if (touches.size < 2) {
         pinch = null;
         settling = touches.size > 0;
+        settle();   // draw the wall at its new zoom
       }
       return;
     }
     if (!touches.size) settling = false;
-    if (pan && pan.id === e.pointerId) endPan();
+    if (pan && pan.id === e.pointerId) {
+      const { moved, trail } = pan;
+      endPan();
+      settle();   // if the pan cut a zoom short
+      if (moved && e.type === 'pointerup') glide(trail, e.timeStamp);
+    }
     endDrag(at);
   };
   root.addEventListener('pointerup', lift);
@@ -820,11 +975,13 @@ export function createBoard(container, spec, holds, { onHoldClick, onHoldHover, 
     reveal(fx, fy);
   }
 
+  // Wall inches per screen pixel, as the wall is drawn (settle()).
+  const drawnPerPx = () => base.w / (drawnK * frame.w);
+
   // Corner handles stay about the same size on screen at any zoom.
   function sizeVertices() {
-    const width = root.getBoundingClientRect().width;
-    if (!width) return;
-    const r = Math.max(0.45, (VERTEX_PX * view.w) / width);
+    if (!frame.w) return;
+    const r = Math.max(0.45, VERTEX_PX * drawnPerPx());
     volumeDraftLayer.querySelectorAll('.volume-vertex').forEach((c) => c.setAttribute('r', c.classList.contains('face') ? r * 0.75 : r));
   }
 
@@ -832,17 +989,20 @@ export function createBoard(container, spec, holds, { onHoldClick, onHoldHover, 
   // device pixels at full strength, and the fraction left over as one more
   // pixel at that fraction of the strength (0.75 px is 1 solid + 1 half pixel
   // on a 2× screen; on a 1× screen, one pixel at 75%). The role rings' bands
-  // (RING_BANDS) are whole pixels, each at least one wide.
+  // (RING_BANDS) are whole pixels, each at least one wide. Writing a radius
+  // makes every hold redraw, so sizes are only written when they change.
   function sizeOutlines() {
-    const width = root.getBoundingClientRect().width;
-    if (!width) return;
+    if (!frame.w) return;
     const dpr = window.devicePixelRatio || 1;
+    const key = `${frame.w} ${dpr} ${drawnK}`;
+    if (key === outlineKey) return;
+    outlineKey = key;
     const device = BORDER_PX * dpr;
     const whole = Math.floor(device + 1e-6);
     const outer = (device - whole) * BORDER_OPACITY;
     // A quarter pixel more than the whole pixels wanted, as browsers round
     // (Chrome) or truncate the radius to whole pixels.
-    const radius = (px) => (((px + 0.25) / dpr) * view.w) / width;
+    const radius = (px) => ((px + 0.25) / dpr) * drawnPerPx();
     borderInner.setAttribute('radius', radius(Math.max(whole, 1)));
     borderOuter.setAttribute('radius', radius(whole + 1));
     // Over the outer fill, the inner one tops the border up to BORDER_OPACITY.
@@ -856,7 +1016,14 @@ export function createBoard(container, spec, holds, { onHoldClick, onHoldHover, 
       }
     }
   }
-  new ResizeObserver(sizeOutlines).observe(root);
+  sizeOutlines();
+  // The frame changes size with the page (the Climbs list pins a smaller board).
+  new ResizeObserver(([entry]) => {
+    frame.w = entry.contentRect.width;
+    place();
+    sizeVertices();
+    sizeOutlines();
+  }).observe(container);
   // A move to a screen with another pixel density changes the device pixels.
   (function watchDensity() {
     matchMedia(`(resolution: ${window.devicePixelRatio || 1}dppx)`)
@@ -926,11 +1093,13 @@ export function createBoard(container, spec, holds, { onHoldClick, onHoldHover, 
 
   return {
     setHolds,
-    // Show a route's holds. `dim` fades every hold not on the route.
-    setRoute(routeHolds, { dim = true } = {}) {
+    // Show a route's holds. `dim` fades every hold not on the route; `instant`
+    // skips the fade (a new climb, rather than a hold painted in the editor).
+    setRoute(routeHolds, { dim = true, instant = false } = {}) {
       roles = toRoleMap(routeHolds);
       dimOthers = dim;
-      paint();
+      if (instant) paintNow();
+      else paint();
     },
     // Temporarily show another route (e.g. while hovering a list item); null restores.
     preview(routeHolds) {
@@ -962,10 +1131,14 @@ export function createBoard(container, spec, holds, { onHoldClick, onHoldHover, 
     setHiddenVolume,
     setVolumeDraft,
     highlightVolume,
-    reset() {
-      roles = new Map();
+    // `keepRoute` leaves the route showing until the next page sets its own,
+    // so going from one climb to the next repaints the wall once, not twice.
+    reset({ keepRoute = false } = {}) {
+      if (!keepRoute) {
+        roles = new Map();
+        dimOthers = true;
+      }
       preview = null;
-      dimOthers = true;
       spotlit = null;
       picked = new Set();
       hiddenId = null;
@@ -975,7 +1148,7 @@ export function createBoard(container, spec, holds, { onHoldClick, onHoldHover, 
       setVolumeDraft(null);
       setHiddenVolume(null);
       highlightVolume(null);
-      paint();
+      paintNow();
     },
   };
 }

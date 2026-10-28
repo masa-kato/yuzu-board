@@ -22,7 +22,8 @@ function query(params) {
 export const api = {
   board: () => request('GET', '/api/board'),
 
-  holds: () => request('GET', '/api/holds'),
+  // `ppi` sizes the board images for this screen (board.js imagePpi).
+  holds: (ppi) => request('GET', `/api/holds${query({ ppi })}`),
   holdNames: () => request('GET', '/api/hold-names'),
   createHold: (form) => request('POST', '/api/holds', form),
   updateHold: (id, form) => request('PUT', `/api/holds/${id}`, form),
