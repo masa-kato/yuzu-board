@@ -1,0 +1,300 @@
+import {
+  ROLES, ROLE_LABELS, append, celebrate, climberOptions, confirmDialog, dialog, faBadge, field, fmtDate, gradePips, h, icon, roleDot, today,
+} from '../ui.js';
+import { NAME_MAX, plural as pluralize } from './circuits.js';
+import { listQuery } from './climbs.js';
+import { consumeSwipe, enableSwipe, settleSwipe } from '../swipe.js';
+
+// The problems the Climbs (or Legacy) list shows, in its order: as last
+// listed, or fetched with the saved filters after a reload or a direct link.
+async function climbSequence(ctx, route) {
+  const { state } = ctx;
+  const cached = state.climbSequence;
+  if (cached && cached.legacy === route.legacy && cached.ids.includes(route.parent_id || route.id)) return cached;
+  try {
+    const routes = await ctx.api.routes(listQuery(state, route.legacy));
+    state.climbSequence = { legacy: route.legacy, ids: routes.map((r) => r.id) };
+    return state.climbSequence;
+  } catch {
+    return null;
+  }
+}
+
+export async function render(root, ctx, { routeId, circuitId = null }) {
+  const { state, board } = ctx;
+  const [route, circuit] = await Promise.all([
+    ctx.api.route(routeId, state.me),
+    // A circuit that has gone just drops the circuit context.
+    circuitId ? ctx.api.circuit(circuitId, state.me).catch(() => null) : null,
+  ]);
+  if (ctx.stale()) return;
+  board.setRoute(route.holds);
+  consumeSwipe(ctx.boardEl);      // slide in, when a swipe brought us here
+  state.lastRouteId = route.id;   // the climbs list marks it when you come back
+
+  const base = route.family[0];
+  const variationCount = route.family.length - 1;
+  // Opened as a step of a circuit (and still in it): prev / next through it.
+  const step = circuit ? circuit.routes.findIndex((r) => r.id === route.id) : -1;
+  const inCircuit = step >= 0;
+  const here = inCircuit ? `#/route/${route.id}?circuit=${circuit.id}` : `#/route/${route.id}`;
+
+  // Stepping to the previous / next climb (arrows, or swiping the wall): through
+  // the circuit when opened from one, otherwise through the list's problems
+  // (variations are skipped; a variation steps from its problem's place).
+  let order = null;
+  if (inCircuit) {
+    order = { ids: circuit.routes.map((r) => r.id), at: step, link: (id) => `#/route/${id}?circuit=${circuit.id}` };
+  } else {
+    const seq = await climbSequence(ctx, route);
+    if (ctx.stale()) return;
+    const at = seq ? seq.ids.indexOf(route.parent_id || route.id) : -1;
+    if (at >= 0) order = { ids: seq.ids, at, link: (id) => `#/route/${id}` };
+  }
+  const neighbour = (dir) => (order ? order.ids[order.at + dir] : undefined);
+  const stepTo = (dir) => {
+    const id = neighbour(dir);
+    if (id) ctx.go(order.link(id));
+  };
+
+  const familySelect = h('select', {
+    class: 'input', 'aria-label': 'Choose variation', value: String(route.id),
+    onChange: () => {
+      if (familySelect.value === 'new') ctx.go(`#/new?parent=${base.id}`);
+      else ctx.go(`#/route/${familySelect.value}`);
+    },
+  },
+  route.family.map((r) => h('option', { value: String(r.id) },
+    (r.parent_id ? `↳ ${r.name} · ${r.grade}` : `${r.name} (original) · ${r.grade}`) + (r.possible ? '' : ' — not possible'))),
+  h('option', { value: 'new' }, '+ Add a variation…'));
+
+  const counts = Object.fromEntries(ROLES.map((role) => [role, route.holds.filter((x) => x.role === role).length]));
+  // The hold counts double as the legend: a chip spotlights its role on the
+  // board, and tapping it again shows every role.
+  let spotlit = null;
+  const roleChips = ROLES.map((role) => h('button', {
+    type: 'button', class: `chip hold-count role-${role}`, 'aria-pressed': 'false', disabled: counts[role] === 0,
+    title: `Highlight the ${ROLE_LABELS[role].toLowerCase()} holds`,
+    onClick: () => {
+      spotlit = spotlit === role ? null : role;
+      board.spotlight(spotlit);
+      roleChips.forEach((chip, i) => {
+        chip.classList.toggle('on', ROLES[i] === spotlit);
+        chip.setAttribute('aria-pressed', String(ROLES[i] === spotlit));
+      });
+    },
+  }, roleDot(role), `${counts[role]} ${ROLE_LABELS[role]}`));
+
+  // ---- log a send ----------------------------------------------------------
+  const climberSelect = h('select', { class: 'input', required: true },
+    climberOptions(state.climbers, state.me, state.me ? null : 'Choose climber…'));
+  const dateInput = h('input', { type: 'date', class: 'input', required: true, value: today(), max: today() });
+  const comment = h('textarea', { class: 'input', rows: 3, placeholder: 'How did it go? Beta, conditions, …' });
+  const sendForm = h('form', {
+    class: 'card send-form', hidden: true,
+    onSubmit: async (e) => {
+      e.preventDefault();
+      try {
+        const result = await ctx.api.logSend({
+          route_id: route.id,
+          climber_id: Number(climberSelect.value),
+          sent_date: dateInput.value,
+          comment: comment.value,
+        });
+        const who = ctx.climberName(Number(climberSelect.value));
+        // A little yuzu burst from the button (bigger for a first ascent).
+        celebrate(e.submitter || sendForm.querySelector('[type=submit]'), { big: result.is_fa });
+        if (result.is_fa) ctx.toast(`First ascent! ${who} is the first ascensionist.`, 'celebrate');
+        else if (result.is_repeat) ctx.toast(`Repeat logged for ${who}.`, 'success');
+        else ctx.toast(`Send logged for ${who}.`, 'success');
+        ctx.go(here);
+      } catch (err) {
+        ctx.toast(err.message, 'error');
+      }
+    },
+  },
+  h('h3', {}, route.sent_by_me ? 'Log a repeat' : 'Log a send'),
+  h('div', { class: 'grid-2' }, field('Climber', climberSelect), field('Date', dateInput)),
+  field('Comment (optional)', comment),
+  h('div', { class: 'actions' },
+    h('button', { type: 'button', class: 'btn', onClick: () => (sendForm.hidden = true) }, 'Cancel'),
+    h('button', { type: 'submit', class: 'btn btn-primary' }, 'Save send')));
+
+  const deleteRoute = async () => {
+    const extra = route.parent_id ? '' : variationCount ? ` and its ${variationCount} variation(s)` : '';
+    const ok = await confirmDialog(`Delete “${route.display_name}”?`,
+      `This permanently removes the route${extra}, along with every logged send.`);
+    if (!ok) return;
+    try {
+      await ctx.api.deleteRoute(route.id);
+      ctx.toast('Route deleted.');
+      if (inCircuit) ctx.go(`#/circuit/${circuit.id}`);
+      else ctx.go(route.parent_id ? `#/route/${route.parent_id}` : '#/climbs');
+    } catch (err) {
+      ctx.toast(err.message, 'error');
+    }
+  };
+
+  // ---- circuits --------------------------------------------------------------
+  // Tick the circuits this climb belongs in, or start a new one with it.
+  const chooseCircuits = async () => {
+    let circuits;
+    try {
+      circuits = await ctx.api.circuits();
+    } catch (err) {
+      ctx.toast(err.message, 'error');
+      return;
+    }
+    const member = new Set(route.circuits.map((c) => c.id));
+    const choices = circuits.map((c) => ({
+      circuit: c,
+      // A climb that is no longer possible can leave circuits but not join new ones.
+      box: h('input', { type: 'checkbox', checked: member.has(c.id), disabled: !route.possible && !member.has(c.id) }),
+    }));
+    const newName = h('input', { type: 'text', class: 'input', placeholder: 'e.g. Tuesday warm-up', maxlength: NAME_MAX, autocomplete: 'off' });
+    const result = await dialog({
+      title: `Circuits for ${route.display_name}`,
+      body: h('div', { class: 'circuit-choices' },
+        choices.length
+          ? h('div', { class: 'choice-list' }, choices.map(({ circuit: c, box }) => h('label', { class: 'toggle choice' },
+            box, h('span', { class: 'choice-name' }, c.name), h('span', { class: 'muted small' }, pluralize(c.route_count, 'climb')))))
+          : h('p', { class: 'muted' }, 'No circuits yet. Name one below to start it with this climb.'),
+        route.possible
+          ? field('New circuit (optional)', newName)
+          : h('p', { class: 'hint' }, 'This climb uses a removed hold, so it can only be taken out of circuits.')),
+      actions: [{ value: 'cancel', label: 'Cancel' }, { value: 'ok', label: 'Save', class: 'btn-primary' }],
+    });
+    if (result !== 'ok') return;
+    const added = choices.filter(({ circuit: c, box }) => box.checked && !member.has(c.id)).map(({ circuit: c }) => c);
+    const removed = choices.filter(({ circuit: c, box }) => !box.checked && member.has(c.id)).map(({ circuit: c }) => c);
+    const name = route.possible ? newName.value.trim() : '';
+    try {
+      for (const c of added) await ctx.api.addToCircuit(c.id, route.id);
+      for (const c of removed) await ctx.api.removeFromCircuit(c.id, route.id);
+      if (name) added.push(await ctx.api.createCircuit({ name, created_by: state.me, route_ids: [route.id] }));
+      const parts = [];
+      if (added.length) parts.push(`Added to ${added.map((c) => c.name).join(', ')}`);
+      if (removed.length) parts.push(`${parts.length ? 'removed' : 'Removed'} from ${removed.map((c) => c.name).join(', ')}`);
+      if (parts.length) ctx.toast(`${parts.join('; ')}.`, 'success');
+    } catch (err) {
+      ctx.toast(err.message, 'error');
+    }
+    ctx.go(here);   // redraw with the new memberships (also after a partial failure)
+  };
+
+  // ‹ title · 3 of 7 ›: the circuit bar (every size) or the list bar (phones).
+  const stepBar = ({ kind, title, label, back, backTitle, names = {} }) => {
+    const arrow = (dir) => {
+      const id = neighbour(dir);
+      const word = dir < 0 ? 'Previous' : 'Next';
+      const name = names[id];
+      return h('button', {
+        type: 'button', class: 'icon-btn', disabled: !id, onClick: id && (() => stepTo(dir)),
+        title: id ? `${word}${name ? `: ${name}` : ' climb'}` : null,
+        'aria-label': id ? `${word} climb${name ? `: ${name}` : ''}` : `No ${word.toLowerCase()} climb`,
+      }, icon(dir < 0 ? 'arrow-left' : 'arrow-right', { size: 17 }));
+    };
+    return h('nav', { class: `step-bar ${kind}`, 'aria-label': label },
+      arrow(-1),
+      h('button', { type: 'button', class: 'step-bar-name', onClick: back, title: backTitle },
+        h('span', { class: 'step-bar-title' }, title),
+        h('span', { class: 'step-bar-step' }, `${order.at + 1} of ${order.ids.length}`)),
+      arrow(1));
+  };
+
+  const removed = route.removed_holds.join(', ');
+  const plural = route.removed_holds.length > 1;
+  let banner = null;
+  if (route.legacy) {
+    banner = h('div', { class: 'banner warn' },
+      h('strong', {}, 'Legacy route. '),
+      `It uses ${plural ? 'holds' : 'a hold'} that ${plural ? 'were' : 'was'} removed from the wall (${removed}), as does every variation. `,
+      'Edit it and swap in other holds to bring it back.');
+  } else if (!route.possible) {
+    banner = h('div', { class: 'banner warn' },
+      h('strong', {}, 'Not possible. '),
+      `${plural ? 'Holds' : 'Hold'} ${removed} ${plural ? 'were' : 'was'} removed from the wall. Other variations of this problem can still be climbed.`);
+  } else if (route.family.some((r) => !r.possible)) {
+    const n = route.family.filter((r) => !r.possible).length;
+    banner = h('div', { class: 'banner info' }, `Not all variations are possible — ${n} of ${route.family.length} use${n === 1 ? 's' : ''} a removed hold.`);
+  }
+
+  // ---- layout ----------------------------------------------------------------
+  root.replaceChildren();   // drop the loading placeholder
+  let back;
+  if (inCircuit) {
+    back = stepBar({
+      kind: 'circuit-bar', title: circuit.name, label: `Circuit: ${circuit.name}`,
+      back: () => ctx.go(`#/circuit/${circuit.id}`), backTitle: 'Back to the circuit',
+      names: Object.fromEntries(circuit.routes.map((r) => [r.id, r.display_name])),
+    });
+  } else {
+    const [listHash, listName, linkText] = route.legacy ? ['#/legacy', 'Legacy', 'Legacy routes'] : ['#/climbs', 'Climbs', 'All climbs'];
+    // Phones swap the back link for the list bar, when the climb is in the list.
+    back = [
+      h('button', { type: 'button', class: `back-link${order ? ' has-list-bar' : ''}`, onClick: () => ctx.go(listHash) }, icon('arrow-left', { size: 15 }), linkText),
+      order && stepBar({ kind: 'list-bar', title: listName, label: `${listName} list`, back: () => ctx.go(listHash), backTitle: `Back to ${listName}` }),
+    ];
+  }
+  append(root, [
+    back,
+    h('div', { class: 'route-kicker' }, route.parent_id ? `Variation of ${base.name}` : 'Original problem'),
+    h('h1', { class: 'route-heading' }, route.name,
+      route.sent_by_me && h('span', { class: 'sent-check', title: 'You have sent this' }, icon('check', { size: 22, label: 'Sent' }))),
+    field(variationCount ? `Variations (${variationCount})` : 'Variations', familySelect),
+    h('dl', { class: 'meta' },
+      h('dt', {}, 'Grade'), h('dd', {}, gradePips(route.grade)),
+      h('dt', {}, 'Setter'), h('dd', {}, route.setter_name || '—'),
+      h('dt', {}, 'Set on'), h('dd', {}, fmtDate(route.set_date)),
+      h('dt', {}, 'First ascent'), h('dd', {}, route.fa_name
+        ? [route.fa_name, h('span', { class: 'muted' }, ` · ${fmtDate(route.fa_date)}`)]
+        : h('span', { class: 'muted' }, 'Not sent yet')),
+      h('dt', {}, 'Ascents'), h('dd', {},
+        `${route.ascent_count} ${route.ascent_count === 1 ? 'climber' : 'climbers'}`,
+        h('span', { class: 'muted' }, ` · ${route.send_count} including repeats`)),
+      h('dt', {}, 'Holds'), h('dd', { class: 'hold-counts' }, roleChips),
+      route.circuits.length > 0 && [
+        h('dt', {}, 'Circuits'),
+        h('dd', { class: 'circuit-links' }, route.circuits.map((c) => h('button', {
+          type: 'button', class: 'link', onClick: () => ctx.go(`#/circuit/${c.id}`),
+        }, c.name))),
+      ]),
+    banner,
+    route.notes && h('p', { class: 'notes' }, route.notes),
+    h('div', { class: 'actions' },
+      h('button', {
+        type: 'button', class: 'btn btn-primary', disabled: !route.possible,
+        title: route.possible ? '' : 'This climb uses a removed hold',
+        onClick: () => {
+          sendForm.hidden = !sendForm.hidden;
+          if (!sendForm.hidden) comment.focus();
+        },
+      }, route.sent_by_me ? 'Log repeat' : 'Log send'),
+      h('button', { type: 'button', class: 'btn', onClick: () => ctx.go(`#/edit/${route.id}`) }, 'Edit'),
+      h('button', { type: 'button', class: 'btn', onClick: chooseCircuits }, icon('plus', { size: 15 }), 'Add to circuit'),
+      h('button', { type: 'button', class: 'btn btn-ghost-danger', onClick: deleteRoute }, 'Delete')),
+    sendForm,
+    h('section', { class: 'ascents' },
+      h('h2', {}, `Ascents (${route.ascents.length})`),
+      route.ascents.length
+        ? h('ol', {}, route.ascents.map((a) => h('li', { class: a.climber_id === state.me ? 'me' : '', dataset: { initial: a.name.charAt(0).toUpperCase() } },
+          h('span', { class: 'ascent-name' }, a.name), a.is_fa && faBadge(),
+          h('span', { class: 'muted' }, fmtDate(a.first_sent)))))
+        : h('p', { class: 'muted' }, 'Nobody has sent this yet — be the first ascensionist!')),
+  ]);
+
+  // Swiping the wall sideways (touch) steps to the previous / next climb.
+  const stopSwipe = order && enableSwipe(ctx.boardEl, {
+    canStep: (dir) => !!neighbour(dir),
+    canSwipe: () => !board.isZoomed(),   // zoomed in, a sideways drag pans the board instead
+    onStep: (dir) => {
+      if (ctx.stale()) settleSwipe(ctx.boardEl);   // left the page mid-swipe
+      else stepTo(dir);
+    },
+  });
+  return {
+    destroy() {
+      if (stopSwipe) stopSwipe();
+    },
+  };
+}

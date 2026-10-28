@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0b0b0c">
+  <title>The Yuzu Board</title>
+  <link rel="icon" type="image/png" href="img/favicon.png">
+  <link rel="apple-touch-icon" href="img/apple-touch-icon.png">
+  <link rel="preload" href="fonts/BricolageGrotesque-latin.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="#/climbs" aria-label="The Yuzu Board — home">
+      <img src="img/yuzu.png" alt="" width="34" height="34">
+      <span class="brand-name"><span class="brand-the">The</span> <span class="brand-yuzu">Yuzu</span> Board</span>
+    </a>
+    <nav class="tabs" aria-label="Main">
+      <a href="#/climbs" data-nav="climbs">Climbs</a>
+      <a href="#/new" data-nav="editor">Set boulder</a>
+      <a href="#/logbook" data-nav="logbook">Logbook</a>
+      <a href="#/circuits" data-nav="circuits">Circuits</a>
+      <a href="#/holds" data-nav="holds">Wall</a>
+    </nav>
+    <label class="climber-picker" title="Climbing as">
+      <span id="climber-avatar" class="climber-avatar" aria-hidden="true"></span>
+      <span class="visually-hidden">Climbing as</span>
+      <select id="climber-select" class="climber-select"></select>
+    </label>
+  </header>
+
+  <main class="layout">
+    <section class="board-pane" aria-label="Wall">
+      <div class="board-frame">
+        <div id="board" class="board-wrap"></div>
+        <div class="legend">
+          <div class="legend-key">
+            <span><i class="ring ring-start"></i>Start</span>
+            <span><i class="ring ring-hand"></i>Hand</span>
+            <span><i class="ring ring-foot"></i>Foot</span>
+            <span><i class="ring ring-finish"></i>Finish</span>
+            <span id="hold-readout" class="readout" aria-live="polite"></span>
+          </div>
+          <div id="zoom-slot" class="zoom-slot"></div>
+        </div>
+      </div>
+    </section>
+    <aside id="panel" class="panel"></aside>
+  </main>
+
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>

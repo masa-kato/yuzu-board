@@ -1,0 +1,6 @@
+.venv/
+__pycache__/
+*.pyc
+homewall.db
+.DS_Store
+uploads/
