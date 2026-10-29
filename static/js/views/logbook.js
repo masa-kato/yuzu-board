@@ -4,7 +4,7 @@ function monthLabel(iso) {
   return new Date(`${iso}T00:00:00`).toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
 }
 
-function stat(value, label) {
+export function stat(value, label) {
   return h('div', { class: 'stat' }, h('div', { class: 'stat-value' }, value), h('div', { class: 'stat-label' }, label));
 }
 

@@ -8,20 +8,21 @@ import * as editor from './views/editor.js';
 import * as logbook from './views/logbook.js';
 import * as holdsView from './views/holds.js';
 import * as circuits from './views/circuits.js';
+import * as stats from './views/stats.js';
 
 const ME_KEY = 'homewall.me';
 const PREFS_KEY = 'homewall.filters.v1';
 const VIEWS = {
   climbs, legacy: climbs, route: routeDetail, editor, logbook, holds: holdsView,
-  circuits, circuit: { render: circuits.renderDetail },
+  circuits, circuit: { render: circuits.renderDetail }, stats,
 };
 const NAV_FOR_VIEW = {
   climbs: 'climbs', legacy: 'climbs', route: 'climbs', editor: 'editor', logbook: 'logbook', holds: 'holds',
-  circuits: 'circuits', circuit: 'circuits',
+  circuits: 'circuits', circuit: 'circuits', stats: 'stats',
 };
 // Views whose controls stay put while only their list scrolls; on phones the
 // climb lists also pin the board above them.
-const LIST_VIEWS = new Set(['climbs', 'legacy', 'logbook', 'circuits', 'circuit']);
+const LIST_VIEWS = new Set(['climbs', 'legacy', 'logbook', 'circuits', 'circuit', 'stats']);
 const PINNED_BOARD_VIEWS = new Set(['climbs', 'legacy']);
 
 const defaultFilters = () => ({ q: '', scope: 'all', grades: [], hideSent: false, holdId: null, sort: 'set_date', dir: 'desc' });
@@ -39,6 +40,7 @@ const state = {
   filters: defaultFilters(),
   legacyFilters: defaultFilters(),
   logShowRepeats: true,
+  statsUnusedOnly: false,  // the Stats tab shows only the unused holds
   listScroll: {},       // scrollTop per list view, restored when you come back
   lastRouteId: null,    // the climb last opened, marked in the list on return
   lastCircuitId: null,  // likewise for the circuit last opened
@@ -233,6 +235,8 @@ function parseHash() {
       return { view: 'legacy', params: { legacy: true } };
     case 'holds':
       return { view: 'holds', params: {} };
+    case 'stats':
+      return { view: 'stats', params: {} };
     default:
       return { view: 'climbs', params: {} };
   }

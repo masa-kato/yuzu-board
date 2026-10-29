@@ -71,15 +71,38 @@ const OPACITY_KEY = 'homewall.colorOpacity';
 const DEFAULT_OPACITY = 0.75;
 let tintOpacity = readOpacity();
 
+// The Stats tab draws each hold in gray under its usage color (heatFilter).
+// The same slider then sets how much of the gray hold shows through, 30%
+// unless changed, also remembered in this browser.
+const HEAT_VISIBILITY_KEY = 'homewall.heatVisibility';
+const DEFAULT_HEAT_VISIBILITY = 0.3;
+let heatVisibility = readFraction(HEAT_VISIBILITY_KEY, DEFAULT_HEAT_VISIBILITY);
+
+function readFraction(key, fallback) {
+  try {
+    const saved = localStorage.getItem(key);
+    const v = saved == null ? NaN : Number(saved);
+    return v >= 0 && v <= 1 ? v : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function storeFraction(key, v) {
+  try {
+    localStorage.setItem(key, String(v));
+  } catch {
+    // Storage unavailable (private mode); the setting just won't persist.
+  }
+}
+
 function readOpacity() {
   try {
     localStorage.removeItem('homewall.holdOpacity');
-    const saved = localStorage.getItem(OPACITY_KEY);
-    const v = saved == null ? NaN : Number(saved);
-    return v >= 0 && v <= 1 ? v : DEFAULT_OPACITY;
   } catch {
-    return DEFAULT_OPACITY;
+    // Storage unavailable: nothing old to clear.
   }
+  return readFraction(OPACITY_KEY, DEFAULT_OPACITY);
 }
 
 export const holdOpacity = () => tintOpacity;
@@ -88,12 +111,23 @@ export const holdOpacity = () => tintOpacity;
 // placed, and the Wall tab's thumbnails and preview.
 export function setHoldOpacity(v) {
   tintOpacity = Math.min(1, Math.max(0, v));
-  try {
-    localStorage.setItem(OPACITY_KEY, String(tintOpacity));
-  } catch {
-    // Storage unavailable (private mode); the setting just won't persist.
-  }
+  storeFraction(OPACITY_KEY, tintOpacity);
   document.querySelectorAll('filter.hold-tint').forEach((f) => updateTint(f, f.dataset.color || null));
+}
+
+function setHeatVisibility(v) {
+  heatVisibility = Math.min(1, Math.max(0, v));
+  storeFraction(HEAT_VISIBILITY_KEY, heatVisibility);
+  document.querySelectorAll('filter.heat-tint feFlood').forEach((f) => f.setAttribute('flood-opacity', 1 - heatVisibility));
+}
+
+// The hold in gray, so its own color never mixes with `color`, and `color`
+// laid over it at 1 − heatVisibility: flat color at 0, the gray hold at 1.
+function heatFilter(id, color) {
+  return svg('filter', { id, class: 'heat-tint', x: 0, y: 0, width: 1, height: 1, 'color-interpolation-filters': 'sRGB' },
+    svg('feColorMatrix', { type: 'saturate', values: 0, result: 'gray' }),
+    svg('feFlood', { 'flood-color': color, 'flood-opacity': 1 - heatVisibility }),
+    svg('feComposite', { in2: 'gray', operator: 'atop' }));
 }
 
 // A filter that lays `color` over the opaque pixels of whatever it is applied
@@ -196,6 +230,7 @@ export function createBoard(container, spec, holds, { onHoldClick, onHoldHover, 
       svg('rect', { x: -MARGIN, y: -MARGIN, width: viewW, height: viewH, fill: '#fff' }), maskVolumes),
     clipVolumes);
   const tintDefs = svg('defs');
+  const heatDefs = svg('defs');   // one heatFilter per usage color (setHeat)
 
   const footBottom = foot.top + foot.height;
   function gridLines(attrs) {
@@ -324,7 +359,7 @@ export function createBoard(container, spec, holds, { onHoldClick, onHoldHover, 
   const holdLayer = svg('g', { class: 'holds' });
   const draftLayer = svg('g', { class: 'draft-layer' });
   const volumeDraftLayer = svg('g', { class: 'volume-draft-layer' });
-  root.append(defs, tintDefs,
+  root.append(defs, tintDefs, heatDefs,
     svg('rect', { class: 'wall', x: 0, y: 0, width: W, height: H, rx: 0.75 }),
     svg('rect', { class: 'wall footboard', x: 0, y: foot.top, width: W, height: foot.height, rx: 0.75 }),
     svg('g', { class: 'wall-grain', 'clip-path': 'url(#wall-clip)' },
@@ -348,6 +383,9 @@ export function createBoard(container, spec, holds, { onHoldClick, onHoldHover, 
   let spotlit = null;       // the one role shown at full strength, or null for all of them
   let picked = new Set();   // ids of the holds outlined as picked
   let hiddenId = null;
+  let lit = null;           // ids of the holds kept bright while every other is dimmed (setLit), or null
+  let heat = null;          // hold id -> usage color, while the Stats tab shows them (setHeat)
+  let heatIds = new Map();  // usage color -> its filter's id
 
   function holdNode(hold) {
     const classes = ['hold', hold.image_url && 'has-image', hold.removed && 'removed'].filter(Boolean).join(' ');
@@ -389,7 +427,7 @@ export function createBoard(container, spec, holds, { onHoldClick, onHoldHover, 
 
   function paint() {
     const active = preview || roles;
-    root.classList.toggle('dim', active.size > 0 && (preview ? true : dimOthers));
+    root.classList.toggle('dim', !!lit || (active.size > 0 && (preview ? true : dimOthers)));
     const unlit = (role) => !!spotlit && !!role && role !== spotlit;
     for (const [id, g] of nodes) {
       const role = active.get(id);
@@ -398,6 +436,7 @@ export function createBoard(container, spec, holds, { onHoldClick, onHoldHover, 
         else delete g.dataset.role;
       }
       g.classList.toggle('unlit', unlit(role));
+      g.classList.toggle('lit', !!lit && lit.has(id));
       g.classList.toggle('picked', picked.has(id));
       g.classList.toggle('editing', id === hiddenId);
     }
@@ -460,6 +499,7 @@ export function createBoard(container, spec, holds, { onHoldClick, onHoldHover, 
     ringLayer.replaceChildren();
     holdLayer.replaceChildren(...list.map((hold) => {
       const g = holdNode(hold);
+      if (heat) applyHeat(hold, g);
       nodes.set(hold.id, g);
       return g;
     }), ringLayer);
@@ -472,6 +512,29 @@ export function createBoard(container, spec, holds, { onHoldClick, onHoldHover, 
     }));
     paint();
   }
+
+  // A hold in its usage color, or as usual again once heat is off. The inline
+  // filter wins over the image's own tint, which comes back when it's cleared.
+  // The hold's name tooltip is blanked meanwhile: the Stats tab shows its own.
+  function applyHeat(hold, g) {
+    const color = heat && heat.get(hold.id);
+    const image = g.querySelector('image');
+    if (image) image.style.filter = color ? `url(#${heatIds.get(color)})` : '';
+    else if (color) g.style.setProperty('--heat', color);
+    else g.style.removeProperty('--heat');
+    g.querySelector('title').textContent = heat ? '' : holdTitle(hold);
+  }
+
+  function setHeat(colors) {
+    if (!heat && !colors) return;
+    heat = colors;
+    heatIds = new Map([...new Set(colors ? colors.values() : [])].map((color, i) => [color, `heat-${i}`]));
+    heatDefs.replaceChildren(...[...heatIds].map(([color, id]) => heatFilter(id, color)));
+    root.classList.toggle('heat', !!heat);
+    for (const [id, g] of nodes) applyHeat(holdById.get(id), g);
+    syncSlider();
+  }
+
   setHolds(holds);
 
   // ---- pointer handling ----------------------------------------------------
@@ -512,18 +575,32 @@ export function createBoard(container, spec, holds, { onHoldClick, onHoldHover, 
   const zoomReset = h('button', { type: 'button', class: 'zoom-level', title: 'Show the whole wall (0)', 'aria-label': 'Show the whole wall', onClick: () => resetZoom(true) });
   const zoomControls = h('div', { class: 'zoom-controls', role: 'group', 'aria-label': 'Zoom' }, zoomOut, zoomReset, zoomIn);
 
-  // One color opacity for every hold, beside the zoom.
+  // One slider beside the zoom: the color opacity of every hold, or, while
+  // the Stats tab shows usage colors, how much of each hold shows through them.
+  const SLIDERS = {
+    color: { label: 'Color', title: 'Color opacity of every hold', aria: 'Hold color opacity', get: holdOpacity, set: setHoldOpacity },
+    heat: { label: 'Hold', title: 'How much of each hold shows through its usage color', aria: 'Hold visibility', get: () => heatVisibility, set: setHeatVisibility },
+  };
+  const slider = () => (heat ? SLIDERS.heat : SLIDERS.color);
+  const opacityLabel = h('span', { class: 'opacity-label' });
   const opacityValue = h('span', { class: 'opacity-value' });
   const opacityRange = h('input', {
-    type: 'range', min: 0, max: 100, step: 1, value: Math.round(holdOpacity() * 100), 'aria-label': 'Hold color opacity',
+    type: 'range', min: 0, max: 100, step: 1,
     onInput: () => {
-      setHoldOpacity(Number(opacityRange.value) / 100);
+      slider().set(Number(opacityRange.value) / 100);
       opacityValue.textContent = `${opacityRange.value}%`;
     },
   });
-  opacityValue.textContent = `${opacityRange.value}%`;
-  const opacityControl = h('label', { class: 'opacity-control', title: 'Color opacity of every hold' },
-    h('span', { class: 'opacity-label' }, 'Color'), opacityRange, opacityValue);
+  const opacityControl = h('label', { class: 'opacity-control' }, opacityLabel, opacityRange, opacityValue);
+  function syncSlider() {
+    const s = slider();
+    opacityRange.value = Math.round(s.get() * 100);
+    opacityRange.setAttribute('aria-label', s.aria);
+    opacityControl.title = s.title;
+    opacityLabel.textContent = s.label;
+    opacityValue.textContent = `${opacityRange.value}%`;
+  }
+  syncSlider();
   (zoomHost || container).append(opacityControl, zoomControls);
 
   function clampView(v) {
@@ -1126,6 +1203,16 @@ export function createBoard(container, spec, holds, { onHoldClick, onHoldHover, 
       hiddenId = holdId;
       paint();
     },
+    // Color every hold by `colors` (hold id -> color; the slider then sets
+    // how much of the hold shows through), or null for the usual look.
+    setHeat,
+    // Keep these hold ids bright and dim every other hold, as showing a route
+    // does but without its rings; null for none.
+    setLit(holdIds) {
+      if (!lit && !holdIds) return;
+      lit = holdIds ? new Set(holdIds) : null;
+      paint();
+    },
     setDraft,
     setVolumes,
     setHiddenVolume,
@@ -1142,6 +1229,8 @@ export function createBoard(container, spec, holds, { onHoldClick, onHoldHover, 
       spotlit = null;
       picked = new Set();
       hiddenId = null;
+      lit = null;
+      setHeat(null);
       setMode('view');
       resetZoom();
       setDraft(null);

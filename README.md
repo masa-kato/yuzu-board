@@ -191,6 +191,15 @@ Wooden volumes are part of the wall's background.
 - The grid stays faintly visible through a volume, at half strength.
 - Volumes have no names, can't be selected as holds, and never appear in routes. The Wall tab lists them under **Volumes on the wall**, a dropdown closed by default. In the list, **Edit** reopens a volume to move its corners or change its color; **Delete** removes it.
 
+### Stats
+
+How often each hold is used. Every active climb counts once for each hold on it, whatever its role; variations count as climbs of their own, and legacy climbs don't count.
+
+- Each hold is drawn in gray under its usage color: light yellow for one climb, through orange, to dark red for the most used hold. Holds on no climb stay a darker gray.
+- The slider under the board reads **Hold** here instead of Color: how much of the hold itself shows through its usage color, from flat color at 0% to the plain gray hold at 100%. The gray keeps a hold's own color from mixing with the scale.
+- **Only unused holds** keeps the unused holds bright and dims the rest, as showing a route does.
+- Hover a hold (or tap it on a phone) to see how many climbs use it. The list below the stats ranks the holds by use, or lists the unused ones; hovering a row outlines that hold on the wall.
+
 ### Legacy
 
 The switch at the top of Climbs: routes where every variation uses a removed hold. Editing one and swapping out the removed hold brings it back to Active.

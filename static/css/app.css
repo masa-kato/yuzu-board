@@ -584,6 +584,11 @@ select option { background: var(--surface); color: var(--text); }
 
 .board.dim .hold:not([data-role]) { opacity: var(--dimmed-opacity); }
 
+/* the Stats tab (board.js): holds kept bright while every other dims (setLit),
+   and placeholder holds in their usage color (setHeat; image holds use a filter) */
+.board.dim .hold.lit { opacity: 1; }
+.board.heat .hold .body { fill: var(--heat, url(#hold-resin)); }
+
 .board[data-mode="edit"] .hold,
 .board[data-mode="pick"] .hold { cursor: pointer; }
 .board[data-mode="edit"] .hold:hover .body,
@@ -1832,6 +1837,45 @@ input[type="range"]:disabled { opacity: 0.4; cursor: not-allowed; }
 .face-row { display: flex; align-items: center; gap: 8px; padding: 4px 6px; border-radius: var(--r-sm); font-size: 14px; transition: background 0.15s; }
 .face-row:hover { background: var(--surface-3); }
 .face-row .muted { flex: 1; font-size: 13px; }
+
+/* ---- views: stats ---------------------------------------------------------------------- */
+
+.heat-legend { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; color: var(--muted); font-size: 12.5px; }
+.heat-key { display: inline-flex; align-items: center; gap: 6px; font-variant-numeric: tabular-nums; }
+.heat-bar { width: 72px; height: 10px; border-radius: 3px; }
+.usage-swatch { flex: none; width: 12px; height: 12px; border-radius: 50%; box-shadow: inset 0 0 0 1px rgb(0 0 0 / 0.3); }
+
+.usage-list { display: flex; flex-direction: column; gap: 2px; margin: 0; padding: 0; list-style: none; }
+.usage-head { padding: 2px 0 6px; color: var(--text-2); font-size: 15px; }
+.usage-row { display: flex; align-items: center; gap: 10px; padding: 7px 10px; border-radius: var(--r-sm); font-size: 14px; transition: background 0.15s; }
+.usage-row:hover { background: var(--surface-2); }
+.usage-name { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.usage-count { color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; }
+
+/* a hold's count, floating over it on the wall (stats.js places it) */
+.hold-pop {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  background: var(--toast-bg);
+  border-radius: var(--r-pill);
+  box-shadow: inset 0 0 0 1px var(--line-strong), 0 10px 24px -10px rgba(0, 0, 0, 0.85);
+  color: var(--text);
+  font-size: 13px;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.1s, visibility 0.1s;
+}
+.hold-pop.show { opacity: 1; visibility: visible; }
+.hold-pop-name { font-weight: 700; }
+.hold-pop-count { color: var(--text-2); font-variant-numeric: tabular-nums; }
 
 /* ---- motion ----------------------------------------------------------------------------- */
 
