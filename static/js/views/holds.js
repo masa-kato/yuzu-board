@@ -111,7 +111,28 @@ export async function render(root, ctx) {
   let recolor = null;     // recoloring several holds: { ids: Set of hold ids, color: '#rrggbb' | '' (none) | null (not chosen) }
   const objectUrls = [];
 
+  // The wall's panels as [left, top, right, bottom] in wall inches.
+  const { sides, ceiling } = spec;
+  const panelBoxes = {
+    main: [0, 0, spec.width, spec.height],
+    foot: [0, spec.foot.top, spec.width, spec.total_height],
+    left: [sides.left_x, sides.top, sides.left_x + sides.width, sides.top + sides.height],
+    right: [sides.right_x, sides.top, sides.right_x + sides.width, sides.top + sides.height],
+    ceiling: [0, ceiling.top, spec.width, ceiling.top + ceiling.height],
+  };
+
   function nearest(x, y) {
+    // A side panel has no t-nuts: its holds take the panel's letter. (Points
+    // reach here kept on a panel, so one past the main panel is on a side,
+    // and one above it on the ceiling.)
+    const side = x < 0 ? 'left' : x > spec.width ? 'right' : null;
+    if (side) return { side, letter: sides.letters[side], label: sides.names[side], column: null, dist: null };
+    if (y < 0) {
+      // Nor does the ceiling, but its holds take the column they're under.
+      const col = clamp(Math.floor((spec.col_x[0] - x) / spec.spacing + 0.5), 0, spec.cols - 1);
+      const column = spec.col_labels[col];
+      return { ceiling: true, x: spec.col_x[col], column, letter: column.slice(-1), label: `${ceiling.name}, column ${column}`, dist: null };
+    }
     // Same panel split and rounding as geometry.nearest_tnut, so the server
     // agrees on the t-nut and therefore on the name's letter.
     const onFoot = y >= spec.height + spec.foot.gap / 2;
@@ -127,12 +148,17 @@ export async function render(root, ctx) {
     return { x: tx, y: ty, column, letter, label: column + p.row_labels[row], dist: Math.hypot(x - tx, y - ty) };
   }
 
-  // Keeps a point on the wall; a point in the gap moves to the nearer panel.
-  function clampToPanels(x, y) {
-    const footTop = spec.foot.top;
-    let cy = clamp(y, 0, spec.total_height);
-    if (cy > spec.height && cy < footTop) cy = cy - spec.height < footTop - cy ? spec.height : footTop;
-    return [clamp(x, 0, spec.width), cy];
+  // Keeps a point on the wall: one off it, or in a gap, moves to the closest
+  // spot on the nearest of `panels`.
+  function clampToPanels(x, y, panels = Object.keys(panelBoxes)) {
+    let best = null;
+    for (const panel of panels) {
+      const [left, top, right, bottom] = panelBoxes[panel];
+      const p = [clamp(x, left, right), clamp(y, top, bottom)];
+      const d = Math.hypot(p[0] - x, p[1] - y);
+      if (!best || d < best.d) best = { p, d };
+    }
+    return best.p;
   }
 
   // Every other hold by its name, lowercased. Names are unique across all
@@ -187,7 +213,7 @@ export async function render(root, ctx) {
       h('div', { class: 'panel-head' }, h('h1', {}, 'Wall & holds'), h('span', { class: 'muted' }, plural(active.length, 'hold'))),
       h('p', { class: 'hint' }, `${photos} with images, ${active.length - photos} placeholder circles. Tap any hold on the board to edit or remove it.`),
       uploadButton([icon('upload'), 'Add a hold (PNG)'], startNew),
-      h('p', { class: 'hint' }, 'Use a PNG with a transparent background. Holds can go anywhere on the main board or the footboard below it — they don’t need to sit on a t-nut.'),
+      h('p', { class: 'hint' }, 'Use a PNG with a transparent background. Holds can go anywhere on the main board, the footboard below it, the side panels or the ceiling — they don’t need to sit on a t-nut.'),
       h('button', { type: 'button', class: 'btn recolor-start', onClick: startRecolor }, icon('palette'), 'Recolor holds'),
       removed.length > 0 && h('details', { class: 'removed-holds', open: removedOpen, onToggle: (e) => { removedOpen = e.currentTarget.open; } },
         h('summary', {}, `Removed holds (${removed.length})`),
@@ -451,14 +477,11 @@ export async function render(root, ctx) {
     show();
   }
 
-  // Where a press on the board puts a corner: on the wall, on the same panel
-  // as the first corner, and on a t-nut if snapping is on.
+  // Where a press on the board puts a corner: on the main panel or the
+  // footboard (volumes never go on a side panel or the ceiling), on the same panel as the
+  // first corner, and on a t-nut if snapping is on.
   function cornerAt(point) {
-    let [x, y] = clampToPanels(point.x, point.y);
-    if (volumeDraft.panel) {
-      const [top, bottom] = volumeDraft.panel === 'main' ? [0, spec.height] : [spec.foot.top, spec.total_height];
-      y = clamp(y, top, bottom);
-    }
+    let [x, y] = clampToPanels(point.x, point.y, volumeDraft.panel ? [volumeDraft.panel] : ['main', 'foot']);
     if (volumeDraft.snap) {
       const n = nearest(x, y);
       [x, y] = [n.x, n.y];
@@ -621,8 +644,11 @@ export async function render(root, ctx) {
       h('div', { class: 'route-kicker' }, hold.image_url ? 'Hold' : 'Placeholder hold'),
       h('div', { class: 'hold-heading' }, thumb(hold, 56), h('h1', {}, hold.name)),
       h('dl', { class: 'meta' },
-        h('dt', {}, 'Nearest t-nut'),
-        h('dd', {}, hold.grid, h('span', { class: 'muted' }, hold.offset < 0.05 ? ' · on the t-nut' : ` · ${inches(hold.offset)} off-grid`)),
+        // A hold on a side panel or the ceiling has no t-nut (and no offset from one).
+        hold.offset == null
+          ? [h('dt', {}, 'Panel'), h('dd', {}, hold.grid, h('span', { class: 'muted' }, ' · no t-nuts'))]
+          : [h('dt', {}, 'Nearest t-nut'),
+            h('dd', {}, hold.grid, h('span', { class: 'muted' }, hold.offset < 0.05 ? ' · on the t-nut' : ` · ${inches(hold.offset)} off-grid`))],
         hold.image_url && [
           h('dt', {}, 'Size'), h('dd', {}, inches(hold.size)),
           h('dt', {}, 'Rotation'), h('dd', {}, `${Math.round(hold.rotation)}°`),
@@ -771,12 +797,26 @@ export async function render(root, ctx) {
     board.setDraft({
       src: draft.isImage ? draft.src : null,
       x: draft.x, y: draft.y, size: draft.size, rotation: draft.rotation,
-      color: draft.color, nearest: n,
+      color: draft.color, nearest: n.side ? null : n,
     });
 
-    els.position.replaceChildren(
-      h('strong', {}, `Nearest t-nut ${n.label}`),
-      h('span', { class: 'muted' }, n.dist < 0.05 ? ' · on the t-nut' : ` · ${inches(n.dist)} off-grid`));
+    // Where the name's letter comes from: the side panel, the column on the
+    // ceiling, or the t-nut's column.
+    const panel = n.side && n.label.toLowerCase();
+    let why = `the nearest column is ${n.column}`;
+    let source = `column ${n.column}`;
+    let where = [h('strong', {}, `Nearest t-nut ${n.label}`), h('span', { class: 'muted' }, n.dist < 0.05 ? ' · on the t-nut' : ` · ${inches(n.dist)} off-grid`)];
+    if (n.side) {
+      why = `it’s on the ${panel}`;
+      source = `the ${panel}`;
+      where = [h('strong', {}, `On the ${panel}`), h('span', { class: 'muted' }, ' · no t-nuts')];
+    } else if (n.ceiling) {
+      why = `it’s in column ${n.column} on the ceiling`;
+      source = `column ${n.column} on the ceiling`;
+      where = [h('strong', {}, `On the ceiling, column ${n.column}`), h('span', { class: 'muted' }, ' · no t-nuts')];
+    }
+    els.position.replaceChildren(...where);
+    els.snap.hidden = n.dist == null;
     els.snap.textContent = `Snap to ${n.label}`;
     els.snap.disabled = n.dist < 0.05;
 
@@ -792,10 +832,10 @@ export async function render(root, ctx) {
     const name = draft.name.trim();
     const clash = takenNames().get(name.toLowerCase());
     const problem = !name ? `Give it a noun starting with ${n.letter}`
-      : !startsWithLetter(name, n.letter) ? `Must start with ${n.letter} — the nearest column is ${n.column}`
+      : !startsWithLetter(name, n.letter) ? `Must start with ${n.letter} — ${why}`
         : clash?.removed ? 'A removed hold has this name. Delete it permanently to reuse the name'
           : clash ? 'Another hold already has this name' : null;
-    els.nameHint.textContent = problem || `Starts with ${n.letter}, for column ${n.column}`;
+    els.nameHint.textContent = problem || `Starts with ${n.letter}, for ${source}`;
     els.nameHint.classList.toggle('error', !!problem);
     els.save.disabled = !!problem;
   }
@@ -821,7 +861,7 @@ export async function render(root, ctx) {
     try {
       const saved = draft.holdId ? await ctx.api.updateHold(draft.holdId, form) : await ctx.api.createHold(form);
       await ctx.refreshHolds();
-      ctx.toast(draft.holdId ? `Saved ${saved.name}.` : `${saved.name} added near ${saved.grid}.`, 'success');
+      ctx.toast(draft.holdId ? `Saved ${saved.name}.` : `${saved.name} added ${saved.offset == null ? `on the ${saved.grid.charAt(0).toLowerCase()}${saved.grid.slice(1)}` : `near ${saved.grid}`}.`, 'success');
       draft = null;
       selected = state.holdById.get(saved.id);
       show();

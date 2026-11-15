@@ -1,4 +1,4 @@
-import { h, trackListScroll } from '../ui.js';
+import { append, h, trackListScroll } from '../ui.js';
 import { stat } from './logbook.js';
 
 // Light yellow for a hold on one climb to dark red for the most used hold
@@ -36,20 +36,29 @@ export async function render(root, ctx) {
   const routes = await ctx.api.routes();
   if (ctx.stale()) return;
 
-  // Every active climb (variations too, legacy ones never) counts once for
-  // each hold on it, whatever the hold's role.
-  const climbs = routes.flatMap((r) => [r, ...r.variations]).filter((c) => c.possible);
-  const uses = new Map();
-  for (const climb of climbs) {
-    for (const { hold_id: id } of climb.holds) uses.set(id, (uses.get(id) || 0) + 1);
-  }
-  const count = (hold) => uses.get(hold.id) || 0;
   const wall = state.holds.filter((hold) => !hold.removed);
-  const max = Math.max(0, ...wall.map(count));
-  const colors = new Map(wall.map((hold) => [hold.id, heatColor(count(hold), max)]));
-  const used = wall.filter(count).sort((a, b) => count(b) - count(a) || byName(a, b));
-  const unused = wall.filter((hold) => !count(hold)).sort(byName);
-  board.setHeat(colors);
+  let climbs;
+  let uses;
+  let max;
+  let colors;
+  let used;
+  let unused;
+  const count = (hold) => uses.get(hold.id) || 0;
+
+  // Every active climb (legacy ones never, variations unless they're left
+  // out) counts once for each hold on it, whatever the hold's role.
+  function tally() {
+    climbs = (state.statsVariations ? routes.flatMap((r) => [r, ...r.variations]) : routes).filter((c) => c.possible);
+    uses = new Map();
+    for (const climb of climbs) {
+      for (const { hold_id: id } of climb.holds) uses.set(id, (uses.get(id) || 0) + 1);
+    }
+    max = Math.max(0, ...wall.map(count));
+    colors = new Map(wall.map((hold) => [hold.id, heatColor(count(hold), max)]));
+    used = wall.filter(count).sort((a, b) => count(b) - count(a) || byName(a, b));
+    unused = wall.filter((hold) => !count(hold)).sort(byName);
+    board.setHeat(colors);
+  }
 
   // A hold's count, over the hold on the wall (below it when there's no room
   // above inside the wall's frame, so it never covers the tabs). Nothing shows
@@ -88,6 +97,17 @@ export async function render(root, ctx) {
   const list = h('ul', { class: 'usage-list' });
   const scroller = h('div', { class: 'list-scroll' }, list);
   const scrolling = trackListScroll(root, scroller, state.listScroll, 'stats');
+  const variationsToggle = h('input', {
+    type: 'checkbox', checked: state.statsVariations,
+    onChange: () => {
+      state.statsVariations = variationsToggle.checked;
+      hidePop();   // its count may have changed
+      tally();
+      renderSummary();
+      renderList();
+      scrolling.reset();
+    },
+  });
   const unusedToggle = h('input', {
     type: 'checkbox', checked: state.statsUnusedOnly,
     onChange: () => {
@@ -129,24 +149,37 @@ export async function render(root, ctx) {
     list.replaceChildren(h('li', { class: 'usage-head' }, onlyUnused ? 'Unused holds' : 'Most used'), ...holds.map(row));
   }
 
-  const legend = h('div', { class: 'heat-legend' },
-    max > 1 && h('span', { class: 'heat-key' }, '1',
-      h('span', { class: 'heat-bar', style: `background:linear-gradient(to right, ${HEAT_STOPS.join(', ')})` }), `${max} climbs`),
-    max === 1 && h('span', { class: 'heat-key' }, swatch(HEAT_STOPS[0]), '1 climb'),
-    h('span', { class: 'heat-key' }, swatch(UNUSED), 'Unused'));
+  // The counts and the key, redrawn when variations go in or out.
+  const stats = h('div', { class: 'stats' });
+  const legend = h('div', { class: 'heat-legend' });
 
-  // Title, stats, key and toggle stay put; only the holds scroll.
-  const controls = h('div', { class: 'list-controls' },
-    h('div', { class: 'panel-head' }, h('h1', {}, 'Hold stats')),
-    h('div', { class: 'stats' },
+  function renderSummary() {
+    stats.replaceChildren(
       stat(climbs.length, climbs.length === 1 ? 'active climb' : 'active climbs'),
       stat(used.length, `of ${wall.length} holds used`),
-      stat(unused.length, 'unused holds')),
+      stat(unused.length, 'unused holds'));
+    legend.replaceChildren();
+    append(legend, [
+      max > 1 && h('span', { class: 'heat-key' }, '1',
+        h('span', { class: 'heat-bar', style: `background:linear-gradient(to right, ${HEAT_STOPS.join(', ')})` }), `${max} climbs`),
+      max === 1 && h('span', { class: 'heat-key' }, swatch(HEAT_STOPS[0]), '1 climb'),
+      h('span', { class: 'heat-key' }, swatch(UNUSED), 'Unused'),
+    ]);
+  }
+
+  // Title, stats, key and toggles stay put; only the holds scroll.
+  const controls = h('div', { class: 'list-controls' },
+    h('div', { class: 'panel-head' }, h('h1', {}, 'Hold stats')),
+    stats,
     h('div', { class: 'log-controls' },
-      h('label', { class: 'toggle' }, unusedToggle, h('span', {}, 'Only unused holds')),
+      h('div', { class: 'stats-toggles' },
+        h('label', { class: 'toggle' }, variationsToggle, h('span', {}, 'Include variations')),
+        h('label', { class: 'toggle' }, unusedToggle, h('span', {}, 'Only unused holds'))),
       legend));
   root.classList.add('view-list');
   root.replaceChildren(controls, scroller);
+  tally();
+  renderSummary();
   renderList();
   scrolling.restore();
 

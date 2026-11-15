@@ -30,6 +30,7 @@ const ICONS = {
   x: [['path', { d: 'M6 6l12 12M18 6 6 18' }]],
   search: [['circle', { cx: 11, cy: 11, r: 6.5 }], ['path', { d: 'm20 20-4.2-4.2' }]],
   'chevron-down': [['path', { d: 'M6 9l6 6 6-6' }]],
+  'chevron-right': [['path', { d: 'M9 6l6 6-6 6' }]],
   upload: [['path', { d: 'M12 15V4M7 9l5-5 5 5' }], ['path', { d: 'M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3' }]],
   image: [['rect', { x: 3.5, y: 3.5, width: 17, height: 17, rx: 3 }], ['circle', { cx: 9, cy: 9, r: 1.8 }], ['path', { d: 'M20.5 15.5 15 10 5 20' }]],
   layers: [['path', { d: 'M12 3 3 8l9 5 9-5-9-5Z' }], ['path', { d: 'M3 13l9 5 9-5' }]],

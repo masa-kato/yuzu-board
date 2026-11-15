@@ -72,6 +72,13 @@ class VolumeApiTest(unittest.TestCase):
         self.create([[10, foot + 1], [30, foot + 1], [20, foot + 7]])                 # footboard only: fine
         self.create([[10, geometry.HEIGHT - 1], [30, foot + 1], [20, foot + 7]], status=400)
 
+    def test_no_volumes_on_side_panels(self):
+        self.create([[-8, 10], [-2, 10], [-5, 20]], status=400)                  # left panel
+        self.create([[122, 10], [128, 10], [125, 20]], status=400)               # right panel
+        self.create([[110, 10], [125, 10], [115, 20]], status=400)               # main and right
+        self.create([[40, -15], [60, -15], [50, -5]], status=400)                 # ceiling
+        self.create([[40, -5], [60, -5], [50, 5]], status=400)                    # ceiling and main
+
     def test_volumes_are_not_holds(self):
         self.create(TRIANGLE)
         holds = self.client.get("/api/holds").get_json()

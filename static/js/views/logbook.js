@@ -4,6 +4,15 @@ function monthLabel(iso) {
   return new Date(`${iso}T00:00:00`).toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
 }
 
+// "Sat, Nov 14" (the year is in the month heading above).
+function dayLabel(iso) {
+  return new Date(`${iso}T00:00:00`).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
+}
+
+function plural(n, word) {
+  return `${n} ${word}${n === 1 ? '' : 's'}`;
+}
+
 export function stat(value, label) {
   return h('div', { class: 'stat' }, h('div', { class: 'stat-value' }, value), h('div', { class: 'stat-label' }, label));
 }
@@ -74,7 +83,6 @@ export async function render(root, ctx) {
       onMouseenter: () => board.preview(holds),
       onMouseleave: () => board.preview(null),
     },
-    h('div', { class: 'send-date' }, fmtDate(send.sent_date)),
     h('div', { class: 'send-body' },
       h('div', { class: 'send-title' },
         h('button', { type: 'button', class: 'link', onClick: () => ctx.go(`#/route/${send.route_id}`) }, send.display_name),
@@ -88,22 +96,43 @@ export async function render(root, ctx) {
       h('button', { type: 'button', class: 'icon-btn danger', title: 'Delete send', 'aria-label': 'Delete send', onClick: () => deleteSend(send) }, icon('trash', { size: 15 }))));
   }
 
+  // A day of sends as a dropdown. The latest day starts open and the rest
+  // closed; one you open or close stays that way while the app is open.
+  function day(date, sends, latest) {
+    const repeats = sends.filter((s) => s.is_repeat).length;
+    const firsts = sends.length - repeats;
+    const count = [firsts && plural(firsts, 'send'), repeats && plural(repeats, 'repeat')].filter(Boolean).join(' · ');
+    const el = h('details', { class: 'log-day', open: (state.logOpenDays[date] ?? latest) || null },
+      h('summary', { onClick: () => (state.logOpenDays[date] = !el.open) },
+        h('span', { class: 'log-day-date' }, dayLabel(date)),
+        h('span', { class: 'log-day-count' }, count)),
+      h('div', { class: 'log-day-sends' }, sends.map(entry)));
+    return el;
+  }
+
+  // The sends come newest first, so each day's are together, under its month.
   function renderList() {
     const sends = log.sends.filter((s) => state.logShowRepeats || !s.is_repeat);
     if (!sends.length) {
       list.replaceChildren(h('div', { class: 'empty' }, 'No sends logged yet. Open a climb and hit “Log send”.'));
       return;
     }
+    const days = [];   // [date, its sends]
+    for (const send of sends) {
+      const last = days[days.length - 1];
+      if (last && last[0] === send.sent_date) last[1].push(send);
+      else days.push([send.sent_date, [send]]);
+    }
     const nodes = [];
     let month = null;
-    for (const send of sends) {
-      const label = monthLabel(send.sent_date);
+    days.forEach(([date, daySends], i) => {
+      const label = monthLabel(date);
       if (label !== month) {
         month = label;
         nodes.push(h('h3', { class: 'month' }, label));
       }
-      nodes.push(entry(send));
-    }
+      nodes.push(day(date, daySends, i === 0));
+    });
     list.replaceChildren(...nodes);
   }
 

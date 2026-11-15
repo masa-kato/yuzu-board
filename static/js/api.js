@@ -25,6 +25,8 @@ export const api = {
   // `ppi` sizes the board images for this screen (board.js imagePpi).
   holds: (ppi) => request('GET', `/api/holds${query({ ppi })}`),
   holdNames: () => request('GET', '/api/hold-names'),
+  // Every hold on the wall in one picture, as touch screens draw them (board.js LIGHT).
+  holdsPicture: (params) => request('GET', `/api/holds/picture${query(params)}`),
   createHold: (form) => request('POST', '/api/holds', form),
   updateHold: (id, form) => request('PUT', `/api/holds/${id}`, form),
   holdImpact: (id) => request('GET', `/api/holds/${id}/impact`),
@@ -54,6 +56,15 @@ export const api = {
   createRoute: (data) => request('POST', '/api/routes', data),
   updateRoute: (id, data) => request('PUT', `/api/routes/${id}`, data),
   deleteRoute: (id) => request('DELETE', `/api/routes/${id}`),
+  // A climb nobody has sent goes back to Drafts; returns the draft.
+  routeToDraft: (id, savedBy) => request('POST', `/api/routes/${id}/draft`, { saved_by: savedBy }),
+
+  // Climbs not published yet, shared by everyone. createRoute with `draft_id` publishes one.
+  drafts: () => request('GET', '/api/drafts'),
+  draft: (id) => request('GET', `/api/drafts/${id}`),
+  createDraft: (data) => request('POST', '/api/drafts', data),
+  updateDraft: (id, data) => request('PUT', `/api/drafts/${id}`, data),
+  deleteDraft: (id) => request('DELETE', `/api/drafts/${id}`),
 
   // Circuit calls return the whole circuit, with "sent by me" filled in for `me`.
   circuits: (me) => request('GET', `/api/circuits${query({ me })}`),

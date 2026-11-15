@@ -1,6 +1,9 @@
 // Swiping the wall sideways (touch and pen only) to step between climbs.
-// The element follows the finger; a committed swipe slides it out, and the
-// next page slides it back in from the other side with consumeSwipe().
+// The `moving` element (on phones the layer with just the climb's holds; see
+// board.js swipeLayer) follows the finger; a committed swipe slides it out,
+// and the next page slides it back in from the other side with consumeSwipe().
+// It moves by the CSS `translate` property, which leaves `transform` to the
+// board's zoom.
 
 const DECIDE = 10;       // px of movement before we know which way the finger is going
 const COMMIT = 60;       // px that always commits
@@ -14,17 +17,18 @@ let pending = 0;         // direction of a swipe still waiting for the next page
 const reducedMotion = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
 function place(el, x, opacity, ms = 0) {
-  el.style.transition = ms ? `transform ${ms}ms ${EASE}, opacity ${ms}ms ${EASE}` : 'none';
-  el.style.transform = x ? `translateX(${x})` : '';
+  el.style.transition = ms ? `translate ${ms}ms ${EASE}, opacity ${ms}ms ${EASE}` : '';
+  el.style.translate = x ? `${x} 0` : '';
   el.style.opacity = opacity === 1 ? '' : String(opacity);
 }
 
+// `el` takes the touches and `moving` follows them (`el` itself by default).
 // `canStep(dir)` says whether there is a climb that way; `onStep(dir)` goes
 // there. dir is +1 for next (swipe left) and -1 for previous (swipe right).
 // `canSwipe()` turns it off for now (e.g. while the board is zoomed in, when a
 // drag pans instead). A second finger means a pinch, so the swipe gives way.
 // Returns a function that turns swiping off again.
-export function enableSwipe(el, { canStep, onStep, canSwipe = () => true }) {
+export function enableSwipe(el, { moving = el, canStep, onStep, canSwipe = () => true }) {
   let start = null;      // { id, x, y, t } of the touch being tracked
   let horizontal = null; // null until decided
   let swallowClick = false;
@@ -33,7 +37,7 @@ export function enableSwipe(el, { canStep, onStep, canSwipe = () => true }) {
   el.style.touchAction = 'pan-y';   // pinches go to the board's own zoom
 
   function abort() {
-    if (start && horizontal && !reducedMotion()) place(el, 0, 1, 220);
+    if (start && horizontal && !reducedMotion()) place(moving, 0, 1, 220);
     start = null;
   }
 
@@ -67,7 +71,7 @@ export function enableSwipe(el, { canStep, onStep, canSwipe = () => true }) {
     }
     if (!reducedMotion()) {
       const free = canStep(dx < 0 ? 1 : -1);
-      place(el, `${dx * (free ? 0.6 : 0.25)}px`, free ? 1 - Math.min(Math.abs(dx) / 600, 0.35) : 1);
+      place(moving, `${dx * (free ? 0.6 : 0.25)}px`, free ? 1 - Math.min(Math.abs(dx) / 600, 0.35) : 1);
     }
   }
 
@@ -84,7 +88,7 @@ export function enableSwipe(el, { canStep, onStep, canSwipe = () => true }) {
     const dir = dx < 0 ? 1 : -1;
     const far = Math.abs(dx) >= COMMIT || (Math.abs(dx) >= FLICK && Math.abs(dx) / dt >= FLICK_SPEED);
     if (!far || !canStep(dir)) {
-      if (!reducedMotion()) place(el, 0, 1, 220);
+      if (!reducedMotion()) place(moving, 0, 1, 220);
       return;
     }
     pending = dir;
@@ -92,7 +96,7 @@ export function enableSwipe(el, { canStep, onStep, canSwipe = () => true }) {
       onStep(dir);
       return;
     }
-    place(el, `${-dir * OUT}%`, 0, 160);
+    place(moving, `${-dir * OUT}%`, 0, 160);
     setTimeout(() => onStep(dir), 150);
   }
 

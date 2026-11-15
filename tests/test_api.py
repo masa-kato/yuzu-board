@@ -197,6 +197,25 @@ class ApiTest(unittest.TestCase):
         self.assertTrue(self.route(rid, me=self.sam)["sent_by_me"])
         self.assertFalse(self.route(rid, me=self.alex)["sent_by_me"])
 
+    def test_variation_sent_flag(self):
+        """A problem says whether you've sent any of its variations, even one
+        the filters leave out; the route page's family says which."""
+        base = self.make_route("Base", grade="easy")
+        var = self.make_route("Sit Start", parent=base, grade="hard")
+        self.make_route("Other", grade="easy")
+        self.send(var, self.sam, "2026-09-05")
+
+        def family_row(query):
+            return next(r for r in self.get("/api/routes" + query) if r["id"] == base)
+        self.assertTrue(family_row("?me=%d" % self.sam)["variation_sent"])
+        self.assertFalse(family_row("?me=%d" % self.sam)["sent_by_me"])
+        self.assertTrue(family_row("?me=%d&grade=easy" % self.sam)["variation_sent"])   # the variation is filtered out
+        self.assertEqual(family_row("?me=%d&grade=easy" % self.sam)["variations"], [])
+        self.assertFalse(family_row("?me=%d" % self.alex)["variation_sent"])
+        self.assertFalse(family_row("")["variation_sent"])
+        family = self.route(base, me=self.sam)["family"]
+        self.assertEqual([(f["id"], f["sent_by_me"]) for f in family], [(base, False), (var, True)])
+
     # sorting ---------------------------------------------------------------
 
     def order(self, query):

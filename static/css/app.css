@@ -457,42 +457,42 @@ select option { background: var(--surface); color: var(--text); }
      the drawn wall instead of repainting it as the swipe starts and ends. */
   .board-wrap { will-change: transform; }
 
+  /* No Wall tab on phones: holds are added and removed on a computer (app.js). */
+  .tabs a[data-nav="holds"] { display: none; }
+
   /* Pages other than the climb list scroll normally on phones. */
   body:not(.list-mode) .panel.panel-list { height: auto; overflow: visible; display: block; padding-bottom: var(--panel-pad); }
   body:not(.list-mode) .list-scroll { overflow: visible; margin: 0; padding: 12px 0 0; }
 
   /* Climb list on phones: the page itself doesn't scroll. The board stays
-     pinned on top, the controls sit under it, and only the routes scroll. */
+     pinned on top (as big as on the Wall tab and a climb's page, so going
+     between them never resizes it), the controls sit under it, and only the
+     routes scroll. */
   body.list-mode { height: 100dvh; display: flex; flex-direction: column; overflow: hidden; }
   body.list-mode .topbar { flex: none; }
-  body.list-mode .layout { flex: 1; min-height: 0; width: 100%; display: flex; flex-direction: column; gap: 10px; padding-bottom: 0; }
+  body.list-mode .layout { position: relative; flex: 1; min-height: 0; width: 100%; display: flex; flex-direction: column; gap: 10px; padding-bottom: 0; }
   /* stretch (not the desktop `start`), so the frame's auto margins centre the wall */
   body.list-mode .board-pane { flex: none; align-self: stretch; }
-  body.list-mode .board-frame { --board-max-h: 34dvh; }
-  /* The Climbs list: no key here, only the zoom control, tucked into the gap
-     above the list's sheet so it takes no height (the handle row sits beside it). */
-  body.list-mode .legend { position: relative; z-index: 3; margin: 0 0 -30px; }
-  body.list-mode .legend-key { display: none; }
-  body.list-mode .zoom-controls { padding: 2px; }
-  body.list-mode .zoom-controls .icon-btn, body.list-mode .zoom-level { height: 26px; }
-  body.list-mode .zoom-controls .icon-btn { width: 26px; }
-  /* The key here spans the screen's width (not just the wall's), so the opacity
-     pill (left) and the zoom (right) both stay clear of the sheet's handle. */
-  body.list-mode .legend { width: calc(100vw - 32px); margin-left: calc((100% - 100vw + 32px) / 2); }
-  body.list-mode .zoom-slot { justify-content: space-between; }
-  body.list-mode .opacity-control { height: 30px; padding: 0 10px; gap: 6px; }
-  body.list-mode .opacity-label { display: none; }
-  body.list-mode .panel.panel-list {
+  /* The lists show no key, Color or zoom under the board: a climb's page has
+     them, and the Color setting carries over (board.js remembers it). */
+  body.list-mode .legend { display: none; }
+  body.list-mode .panel {
     flex: 1;
+    align-self: stretch;   /* full width, whatever the list holds (Drafts is narrow) */
     min-height: 0;
     height: auto;
     padding: 8px 14px 0;
     border-radius: 20px 20px 0 0;
     --panel-pad: 14px;
   }
+  /* Raised (sheet.js: a swipe up, or the search being typed in), the sheet
+     covers the board to show more of the list; the board stays as it is
+     underneath. */
+  body.list-mode.sheet-up .panel { position: absolute; inset: 12px 16px 0; z-index: 4; }
   /* a bottom-sheet grab handle (decorative) */
-  body.list-mode .panel.panel-list::before {
+  body.list-mode .panel::before {
     content: "";
+    display: block;
     flex: none;
     width: 36px;
     height: 4px;
@@ -519,6 +519,31 @@ select option { background: var(--surface); color: var(--text); }
   body.list-mode .list-controls .search-field { grid-area: search; }
   body.list-mode .list-controls .filters-button { display: inline-flex; grid-area: filters; }
   body.list-mode .list-controls .active-filters { display: flex; grid-area: active; margin-top: 8px; }
+  /* Drafts has no search or Filters button, so its Active | Legacy | Drafts stays out. */
+  body.list-mode .view-list .list-controls.drafts-controls { display: block; }
+  body.list-mode .list-controls.drafts-controls .list-head { display: flex; }
+  body.list-mode .list-controls.drafts-controls .segmented-nav { display: inline-flex; }
+  body.list-mode .list-controls.drafts-controls .list-count { display: inline; }
+  /* Climbs and Legacy on phones: one line per climb, its name and its yuzus.
+     The rest (setter, FA, variations…) is on the climb's page. */
+  .climb-list { gap: 6px; }
+  .climb-list .route-main { padding: 9px 4px 9px 12px; }
+  .climb-list .route-title .route-name { min-width: 0; overflow: hidden; font-size: 15px; text-overflow: ellipsis; white-space: nowrap; }
+  .climb-list .route-meta,
+  .climb-list .variations,
+  .climb-list .family-warning,
+  .climb-list .impossible-tag { display: none; }
+  .climb-list .route-card.skeleton { padding: 13px 12px; }
+  .climb-list .route-card.skeleton .skeleton-line:not(:first-child) { display: none; }
+  /* a tap on the row shows the climb on the board; the › opens it */
+  .climb-list .route-card { display: flex; align-items: stretch; }
+  .climb-list .route-main { flex: 1; min-width: 0; }
+  .climb-list .route-open { display: flex; }
+}
+/* Lowered, the list's sheet moves as a whole under a finger (sheet.js) rather
+   than scrolling; raised, the list scrolls. */
+@media (max-width: 900px) and (pointer: coarse) {
+  body.list-mode:not(.sheet-up) .list-scroll { overflow-y: hidden; }
 }
 
 @media (max-width: 560px) {
@@ -578,6 +603,14 @@ select option { background: var(--surface); color: var(--text); }
 /* holds on the route: their role ring (#ring-*, a fixed width on screen, on
    its own layer just under them) replaces the white border */
 .hold[data-role] .hold-look { filter: none; }
+/* touch screens (board.js LIGHT): every hold as one picture, between the wall
+   and the holds drawn on their own; it fades as one when a problem is shown */
+.holds-picture { position: absolute; top: 0; left: 0; width: 100%; height: 100%; transform-origin: 0 0; will-change: transform, opacity; pointer-events: none; transition: opacity 0.15s; }
+.holds-picture img { position: absolute; max-width: none; }
+.holds-picture.dim { opacity: var(--dimmed-opacity); }
+.holds-picture.dim[data-mode="edit"] { opacity: var(--setting-dimmed-opacity); }
+.holds-picture.instant { transition: none; }
+.board.picture .holds > .hold.has-image:not([data-role]):not(.picked):not(.lit) .hold-art { visibility: hidden; }
 .hold[data-role] .body { stroke: none; }
 .role-ring { pointer-events: none; transition: opacity 0.15s; }
 .hold.unlit, .role-ring.unlit { opacity: var(--unlit-opacity); }
@@ -756,6 +789,12 @@ select option { background: var(--surface); color: var(--text); }
 .back-link:hover { color: var(--yuzu); }
 .back-link .icon { transition: transform 0.2s var(--ease); }
 .back-link:hover .icon { transform: translateX(-2px); }
+/* ← All circuits › Pinches, over a climb opened from a circuit */
+.back-trail { display: flex; align-items: center; gap: 6px; min-width: 0; margin-bottom: -4px; color: var(--muted); }
+.back-trail .back-link { flex: none; margin-bottom: 0; }
+.back-trail .back-link:last-child { flex: 0 1 auto; min-width: 0; }
+.back-trail > .icon { flex: none; opacity: 0.6; }
+.back-trail-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* ---- components: fields --------------------------------------------------------- */
 
@@ -928,6 +967,9 @@ input[type="range"]:disabled { opacity: 0.4; cursor: not-allowed; }
   font-size: 14px;
 }
 .filter-sheet .sort-row .sort-select, .filter-sheet .dir-button { height: 40px; }
+/* while its search is typed in (climbs.js), the sheet takes the whole screen,
+   which keeps the field near the top, above the keyboard */
+.filter-sheet.typing { height: 100dvh; max-height: none; border-radius: 0; }
 
 /* Active | Legacy */
 .segmented-nav {
@@ -1054,6 +1096,38 @@ input[type="range"]:disabled { opacity: 0.4; cursor: not-allowed; }
   transform: rotate(-24deg);
 }
 .pip.project { outline: 1.25px solid var(--yuzu); outline-offset: 1.5px; }
+/* Warm-up, below Easy: a leaf sprouting from the ground (ui.js sprout). The
+   stem grows up out of the soil, the two leaves unfold and sway, then the
+   plant sinks back behind the soil and grows again. Transforms only, so it's
+   cheap; with reduced motion it stands fully grown. */
+.sprout { display: block; overflow: hidden; }
+.sprout-plant { animation: sprout-sink 3.2s ease-in-out infinite; }
+.sprout-stem, .sprout-leaf { transform-box: fill-box; }
+.sprout-stem { transform-origin: 50% 100%; animation: sprout-grow 3.2s ease-out infinite; }
+.sprout-leaf.left { transform-origin: 100% 100%; animation: sprout-leaf-left 3.2s ease-out infinite; }
+.sprout-leaf.right { transform-origin: 0 100%; animation: sprout-leaf-right 3.2s ease-out infinite; }
+@keyframes sprout-sink {
+  0%, 82% { transform: none; }
+  96%, 100% { transform: translateY(9px); }
+}
+@keyframes sprout-grow {
+  0%, 4% { transform: scaleY(0); }
+  32%, 100% { transform: none; }
+}
+@keyframes sprout-leaf-left {
+  0%, 26% { transform: scale(0); }
+  46% { transform: none; }
+  60% { transform: rotate(-9deg); }
+  72% { transform: rotate(4deg); }
+  82%, 100% { transform: none; }
+}
+@keyframes sprout-leaf-right {
+  0%, 26% { transform: scale(0); }
+  46% { transform: none; }
+  60% { transform: rotate(9deg); }
+  72% { transform: rotate(-4deg); }
+  82%, 100% { transform: none; }
+}
 
 .role-dot { display: inline-block; flex: none; width: 11px; height: 11px; border-radius: 50%; border: 2.5px solid var(--dot); }
 .role-start { --dot: var(--start); }
@@ -1063,8 +1137,15 @@ input[type="range"]:disabled { opacity: 0.4; cursor: not-allowed; }
 /* the board's ring shapes: a thin ring for feet, a second ring around start and finish */
 .role-dot.role-foot { border-width: 1.5px; }
 .role-dot.role-start, .role-dot.role-finish { border-width: 2px; outline: 1.5px solid var(--dot); outline-offset: 1px; }
+/* on phones the board gives every role the same thin ring (board.js), and so does the key */
+@media (max-width: 900px) {
+  .ring-start, .ring-hand, .ring-foot, .ring-finish,
+  .role-dot.role-start, .role-dot.role-hand, .role-dot.role-foot, .role-dot.role-finish { border-width: 1.5px; outline: none; }
+}
 
-.sent-check { display: inline-flex; color: var(--leaf-text); }
+/* a climb you've sent: a slice of yuzu (ui.js sentMark) */
+.sent-mark { display: inline-flex; flex: none; }
+.sent-mark svg { display: block; }
 
 /* banners: tonal, with an icon drawn by CSS */
 .banner {
@@ -1241,6 +1322,20 @@ input[type="range"]:disabled { opacity: 0.4; cursor: not-allowed; }
 }
 .route-main:focus-visible { outline: 2px solid var(--yuzu); outline-offset: -2px; border-radius: var(--r-md); }
 .route-card.unmatched .route-main { opacity: 0.6; }
+/* the climb shown on the board (climbs.js): a faint yellow outline */
+.route-card.on-board { box-shadow: inset 0 0 0 1.5px var(--yuzu-line); }
+.route-open {
+  display: none;
+  flex: none;
+  align-items: center;
+  padding: 0 12px 0 6px;
+  background: none;
+  border: none;
+  color: var(--muted);
+  cursor: pointer;
+}
+.route-open:hover, .route-open:active { color: var(--yuzu); }
+.route-open:focus-visible { outline: 2px solid var(--yuzu); outline-offset: -2px; border-radius: var(--r-md); }
 .route-title { display: flex; align-items: center; gap: 8px; }
 .route-title .route-name { font-family: var(--font-display); font-size: 17px; font-weight: 650; letter-spacing: -0.01em; }
 .route-title .grade { order: 9; margin-left: auto; }
@@ -1306,6 +1401,7 @@ input[type="range"]:disabled { opacity: 0.4; cursor: not-allowed; }
   font-size: 13px;
 }
 .route-card.legacy .route-name { color: var(--text-2); }
+.route-name.untitled { color: var(--text-2); font-style: italic; font-weight: 550; }
 .removed-note { color: var(--danger-text); }
 
 .route-main.impossible > *, .variation-row.impossible > * { opacity: 0.45; }
@@ -1446,6 +1542,8 @@ input[type="range"]:disabled { opacity: 0.4; cursor: not-allowed; }
 /* ---- views: route page ----------------------------------------------------------------- */
 
 .route-kicker { margin-bottom: -10px; color: var(--muted); font-size: 13px; font-weight: 500; }
+.draft-note { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px 12px; margin-top: -8px; font-size: 13px; }
+.draft-note .btn-small { align-self: center; }
 .route-heading {
   display: flex;
   align-items: center;
@@ -1455,7 +1553,13 @@ input[type="range"]:disabled { opacity: 0.4; cursor: not-allowed; }
   letter-spacing: -0.025em;
   line-height: 1.1;
 }
-.route-heading .sent-check .icon { width: 22px; height: 22px; }
+/* on the climb's page it lands with a little spin, e.g. just after logging a send */
+.route-heading .sent-mark { animation: sent-pop 0.55s var(--ease) both; }
+@keyframes sent-pop {
+  0% { opacity: 0; transform: scale(0.3) rotate(-120deg); }
+  60% { opacity: 1; transform: scale(1.18) rotate(10deg); }
+  100% { transform: none; }
+}
 
 .meta {
   display: grid;
@@ -1543,7 +1647,7 @@ input[type="range"]:disabled { opacity: 0.4; cursor: not-allowed; }
 .erase-icon { display: grid; place-items: center; height: 14px; }
 
 /* grade picker: each option shows its pips over its name */
-.segmented { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.segmented { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; }
 .seg { position: relative; cursor: pointer; }
 .seg input { position: absolute; opacity: 0; pointer-events: none; }
 .seg > span {
@@ -1617,10 +1721,54 @@ input[type="range"]:disabled { opacity: 0.4; cursor: not-allowed; }
 }
 .sendlog .month:first-child { margin-top: 0; }
 
+/* a day of sends (logbook.js), a dropdown on the timeline */
+.log-day > summary {
+  position: relative;
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 6px 2px;
+  list-style: none;
+  cursor: pointer;
+  user-select: none;
+}
+.log-day > summary::-webkit-details-marker { display: none; }
+/* the timeline dot, one per day */
+.log-day > summary::before {
+  content: "";
+  position: absolute;
+  left: -21px;
+  top: 50%;
+  width: 11px;
+  height: 11px;
+  margin-top: -5.5px;
+  border-radius: 50%;
+  background: var(--surface);
+  box-shadow: inset 0 0 0 2.5px var(--line-strong);
+  transition: box-shadow 0.15s;
+}
+.log-day[open] > summary::before { box-shadow: inset 0 0 0 2.5px var(--yuzu); }
+.log-day > summary::after {
+  content: "";
+  align-self: center;
+  width: 6px;
+  height: 6px;
+  margin: 0 6px 3px auto;
+  border-right: 1.5px solid var(--muted);
+  border-bottom: 1.5px solid var(--muted);
+  transform: rotate(45deg);
+  transition: transform 0.2s var(--ease);
+}
+.log-day[open] > summary::after { transform: rotate(225deg); margin-bottom: -2px; }
+.log-day > summary:hover .log-day-date { color: var(--yuzu); }
+.log-day-date { font-weight: 650; transition: color 0.15s; }
+.log-day-count { color: var(--muted); font-size: 13px; }
+.log-day-sends { display: flex; flex-direction: column; gap: 8px; padding: 4px 0 8px; }
+
 .send-entry {
   position: relative;
   display: grid;
-  grid-template-columns: 88px 1fr auto;
+  grid-template-columns: 1fr auto;
   gap: 10px;
   align-items: start;
   padding: 12px 10px 12px 14px;
@@ -1630,25 +1778,11 @@ input[type="range"]:disabled { opacity: 0.4; cursor: not-allowed; }
 }
 .send-entry.first { --mark: var(--first-send); }
 .send-entry.repeat { --mark: var(--repeat); }
-.send-entry::before {
-  content: "";
-  position: absolute;
-  left: -21px;
-  top: 16px;
-  width: 11px;
-  height: 11px;
-  border-radius: 50%;
-  background: var(--surface);
-  box-shadow: inset 0 0 0 2.5px var(--mark);
-}
-.send-date { padding-top: 1px; color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; }
 .send-title { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; }
 .send-comment { margin: 6px 0 0; color: var(--text-2); font-size: 14px; white-space: pre-wrap; }
 .send-actions { display: flex; gap: 2px; margin: -4px -4px 0 0; }
 
 @media (max-width: 480px) {
-  .send-entry { grid-template-columns: 1fr auto; }
-  .send-date { grid-column: 1 / -1; padding: 0; }
   .grid-2 { grid-template-columns: 1fr; }
   .stat-value { font-size: 28px; }
 }
@@ -1840,6 +1974,7 @@ input[type="range"]:disabled { opacity: 0.4; cursor: not-allowed; }
 
 /* ---- views: stats ---------------------------------------------------------------------- */
 
+.stats-toggles { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 18px; }
 .heat-legend { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; color: var(--muted); font-size: 12.5px; }
 .heat-key { display: inline-flex; align-items: center; gap: 6px; font-variant-numeric: tabular-nums; }
 .heat-bar { width: 72px; height: 10px; border-radius: 3px; }
@@ -1887,5 +2022,6 @@ input[type="range"]:disabled { opacity: 0.4; cursor: not-allowed; }
   *, *::before, *::after { animation-duration: 0.001ms !important; animation-iteration-count: 1 !important; transition-duration: 0.001ms !important; }
   .skeleton-line, .skeleton-block { animation: none; }
   .route-card.recent { animation: none; box-shadow: inset 0 0 0 2px var(--yuzu-line); }
+  .sprout-plant, .sprout-stem, .sprout-leaf { animation: none; }
   .celebrate { display: none; }
 }

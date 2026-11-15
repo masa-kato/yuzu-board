@@ -1,5 +1,5 @@
 import {
-  ROLES, ROLE_LABELS, append, celebrate, climberOptions, confirmDialog, dialog, faBadge, field, fmtDate, gradePips, h, icon, roleDot, today,
+  ROLES, ROLE_LABELS, append, celebrate, climberOptions, confirmDialog, dialog, faBadge, field, fmtDate, gradeLabel, gradePips, h, icon, roleDot, sentMark, today,
 } from '../ui.js';
 import { NAME_MAX, plural as pluralize } from './circuits.js';
 import { listQuery } from './climbs.js';
@@ -31,10 +31,23 @@ let steppedTo = null;      // the route id a step is on its way to
 
 const fresh = (entry, me) => !!entry && entry.me === me && Date.now() - entry.at < AHEAD_MS;
 
+// Likewise a climb pressed in a list is fetched while the finger is still
+// down, for the page that opens when it lifts (and for nothing else).
+const PRESS_MS = 5_000;
+let pressed = null;   // { id, at, me, data } the climb last pressed
+
+export function prefetchRoute(ctx, id) {
+  const { me } = ctx.state;
+  if (pressed && pressed.id === id && pressed.me === me && Date.now() - pressed.at < PRESS_MS) return;
+  pressed = { id, at: Date.now(), me, data: ctx.api.route(id, me).catch(() => null) };
+}
+
 export async function render(root, ctx, { routeId, circuitId = null }) {
   const { state, board } = ctx;
   const stepped = steppedTo === routeId;
-  const early = stepped && fresh(ahead.get(routeId), state.me) ? ahead.get(routeId).data : null;
+  const justPressed = pressed && pressed.id === routeId && pressed.me === state.me && Date.now() - pressed.at < PRESS_MS;
+  const early = stepped && fresh(ahead.get(routeId), state.me) ? ahead.get(routeId).data : justPressed ? pressed.data : null;
+  pressed = null;
   const sameCircuit = stepped && !!circuitId && fresh(circuitAhead, state.me) && circuitAhead.circuit.id === circuitId;
   steppedTo = null;
   ahead = new Map();
@@ -47,14 +60,16 @@ export async function render(root, ctx, { routeId, circuitId = null }) {
   if (circuit && !sameCircuit) circuitAhead = { at: Date.now(), me: state.me, circuit };
   if (ctx.stale()) return;
   board.setRoute(route.holds, { instant: true });
-  consumeSwipe(ctx.boardEl);      // slide in, when a swipe brought us here
+  consumeSwipe(board.swipeLayer);   // slide in, when a swipe brought us here
   state.lastRouteId = route.id;   // the climbs list marks it when you come back
 
   const base = route.family[0];
   const variationCount = route.family.length - 1;
+  const variationsSent = route.family.filter((r) => r.parent_id && r.sent_by_me).length;   // by you
   // Opened as a step of a circuit (and still in it): prev / next through it.
   const step = circuit ? circuit.routes.findIndex((r) => r.id === route.id) : -1;
   const inCircuit = step >= 0;
+  if (inCircuit) state.lastCircuitId = circuit.id;   // and the circuits list marks this
   const here = inCircuit ? `#/route/${route.id}?circuit=${circuit.id}` : `#/route/${route.id}`;
 
   // Stepping to the previous / next climb (arrows, or swiping the wall): through
@@ -84,8 +99,10 @@ export async function render(root, ctx, { routeId, circuitId = null }) {
       else ctx.go(`#/route/${familySelect.value}`);
     },
   },
+  // A menu can only hold text, so the ones you've sent say so.
   route.family.map((r) => h('option', { value: String(r.id) },
-    (r.parent_id ? `↳ ${r.name} · ${r.grade}` : `${r.name} (original) · ${r.grade}`) + (r.possible ? '' : ' — not possible'))),
+    (r.parent_id ? `↳ ${r.name} · ${gradeLabel(r.grade).toLowerCase()}` : `${r.name} (original) · ${gradeLabel(r.grade).toLowerCase()}`)
+    + (r.sent_by_me ? ' · ✓ sent' : '') + (r.possible ? '' : ' — not possible'))),
   h('option', { value: 'new' }, '+ Add a variation…'));
 
   const counts = Object.fromEntries(ROLES.map((role) => [role, route.holds.filter((x) => x.role === role).length]));
@@ -150,6 +167,25 @@ export async function render(root, ctx, { routeId, circuitId = null }) {
       ctx.toast('Route deleted.');
       if (inCircuit) ctx.go(`#/circuit/${circuit.id}`);
       else ctx.go(route.parent_id ? `#/route/${route.parent_id}` : '#/climbs');
+    } catch (err) {
+      ctx.toast(err.message, 'error');
+    }
+  };
+
+  // Until somebody sends it, a climb can go back to Drafts to finish setting.
+  const unsent = route.send_count === 0 && !route.fa_date;
+  const hasVariations = !route.parent_id && variationCount > 0;
+  const toDraft = async () => {
+    const names = route.circuits.map((c) => `“${c.name}”`);
+    const ok = await confirmDialog(`Move “${route.display_name}” to drafts?`,
+      `It leaves the climb lists until it's published again from Drafts.${names.length ? ` It also comes out of ${names.length > 1 ? 'the circuits' : 'the circuit'} ${names.join(', ')}.` : ''}`,
+      'Move to drafts', 'btn-primary');
+    if (!ok) return;
+    try {
+      const draft = await ctx.api.routeToDraft(route.id, state.me);
+      state.lastDraftId = draft.id;
+      ctx.toast(`Moved “${route.display_name}” to drafts.`, 'success');
+      ctx.go('#/drafts');
     } catch (err) {
       ctx.toast(err.message, 'error');
     }
@@ -243,11 +279,20 @@ export async function render(root, ctx, { routeId, circuitId = null }) {
   root.replaceChildren();   // drop the loading placeholder
   let back;
   if (inCircuit) {
-    back = stepBar({
-      kind: 'circuit-bar', title: circuit.name, label: `Circuit: ${circuit.name}`,
-      back: () => ctx.go(`#/circuit/${circuit.id}`), backTitle: 'Back to the circuit',
-      names: Object.fromEntries(circuit.routes.map((r) => [r.id, r.display_name])),
-    });
+    // ← All circuits › Pinches: back to the list of circuits, or to this
+    // circuit's climbs (as is the bar's name).
+    back = [
+      h('nav', { class: 'back-trail', 'aria-label': 'Breadcrumb' },
+        h('button', { type: 'button', class: 'back-link', onClick: () => ctx.go('#/circuits') }, icon('arrow-left', { size: 15 }), 'All circuits'),
+        icon('chevron-right', { size: 14 }),
+        h('button', { type: 'button', class: 'back-link', title: 'Back to the circuit', onClick: () => ctx.go(`#/circuit/${circuit.id}`) },
+          h('span', { class: 'back-trail-name' }, circuit.name))),
+      stepBar({
+        kind: 'circuit-bar', title: circuit.name, label: `Circuit: ${circuit.name}`,
+        back: () => ctx.go(`#/circuit/${circuit.id}`), backTitle: 'Back to the circuit',
+        names: Object.fromEntries(circuit.routes.map((r) => [r.id, r.display_name])),
+      }),
+    ];
   } else {
     const [listHash, listName, linkText] = route.legacy ? ['#/legacy', 'Legacy', 'Legacy routes'] : ['#/climbs', 'Climbs', 'All climbs'];
     // Phones also get the list bar under the back link, when the climb is in the list.
@@ -260,8 +305,8 @@ export async function render(root, ctx, { routeId, circuitId = null }) {
     back,
     h('div', { class: 'route-kicker' }, route.parent_id ? `Variation of ${base.name}` : 'Original problem'),
     h('h1', { class: 'route-heading' }, route.name,
-      route.sent_by_me && h('span', { class: 'sent-check', title: 'You have sent this' }, icon('check', { size: 22, label: 'Sent' }))),
-    field(variationCount ? `Variations (${variationCount})` : 'Variations', familySelect),
+      route.sent_by_me && sentMark(26)),
+    field(variationCount ? `Variations (${variationCount})${variationsSent ? ` · ${variationsSent} sent` : ''}` : 'Variations', familySelect),
     h('dl', { class: 'meta' },
       h('dt', {}, 'Grade'), h('dd', {}, gradePips(route.grade)),
       h('dt', {}, 'Setter'), h('dd', {}, route.setter_name || '—'),
@@ -292,6 +337,10 @@ export async function render(root, ctx, { routeId, circuitId = null }) {
       }, route.sent_by_me ? 'Log repeat' : 'Log send'),
       h('button', { type: 'button', class: 'btn', onClick: () => ctx.go(`#/edit/${route.id}`) }, 'Edit'),
       h('button', { type: 'button', class: 'btn', onClick: chooseCircuits }, icon('plus', { size: 15 }), 'Add to circuit'),
+      unsent && h('button', {
+        type: 'button', class: 'btn', onClick: toDraft, disabled: hasVariations,
+        title: hasVariations ? 'Its variations would have nothing to hang off' : 'Nobody has sent it yet, so it can go back to Drafts',
+      }, 'Move to drafts'),
       h('button', { type: 'button', class: 'btn btn-ghost-danger', onClick: deleteRoute }, 'Delete')),
     sendForm,
     h('section', { class: 'ascents' },
@@ -304,11 +353,13 @@ export async function render(root, ctx, { routeId, circuitId = null }) {
   ]);
 
   // Swiping the wall sideways (touch) steps to the previous / next climb.
+  // The swipe moves only the climb's holds on phones; the wall stays put.
   const stopSwipe = order && enableSwipe(ctx.boardEl, {
+    moving: board.swipeLayer,
     canStep: (dir) => !!neighbour(dir),
     canSwipe: () => !board.isZoomed(),   // zoomed in, a sideways drag pans the board instead
     onStep: (dir) => {
-      if (ctx.stale()) settleSwipe(ctx.boardEl);   // left the page mid-swipe
+      if (ctx.stale()) settleSwipe(board.swipeLayer);   // left the page mid-swipe
       else stepTo(dir);
     },
   });

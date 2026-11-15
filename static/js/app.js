@@ -9,21 +9,24 @@ import * as logbook from './views/logbook.js';
 import * as holdsView from './views/holds.js';
 import * as circuits from './views/circuits.js';
 import * as stats from './views/stats.js';
+import * as drafts from './views/drafts.js';
 
 const ME_KEY = 'homewall.me';
 const PREFS_KEY = 'homewall.filters.v1';
 const VIEWS = {
   climbs, legacy: climbs, route: routeDetail, editor, logbook, holds: holdsView,
-  circuits, circuit: { render: circuits.renderDetail }, stats,
+  circuits, circuit: { render: circuits.renderDetail }, stats, drafts,
 };
 const NAV_FOR_VIEW = {
   climbs: 'climbs', legacy: 'climbs', route: 'climbs', editor: 'editor', logbook: 'logbook', holds: 'holds',
-  circuits: 'circuits', circuit: 'circuits', stats: 'stats',
+  circuits: 'circuits', circuit: 'circuits', stats: 'stats', drafts: 'climbs',
 };
 // Views whose controls stay put while only their list scrolls; on phones the
 // climb lists also pin the board above them.
-const LIST_VIEWS = new Set(['climbs', 'legacy', 'logbook', 'circuits', 'circuit', 'stats']);
-const PINNED_BOARD_VIEWS = new Set(['climbs', 'legacy']);
+const LIST_VIEWS = new Set(['climbs', 'legacy', 'drafts', 'logbook', 'circuits', 'circuit', 'stats']);
+const PINNED_BOARD_VIEWS = new Set(['climbs', 'legacy', 'drafts']);
+// Phones have no Wall tab (app.css): holds are added and removed on a computer.
+const PHONE = window.matchMedia('(max-width: 900px)');
 
 const defaultFilters = () => ({ q: '', scope: 'all', grades: [], hideSent: false, holdId: null, sort: 'set_date', dir: 'desc' });
 
@@ -41,10 +44,16 @@ const state = {
   legacyFilters: defaultFilters(),
   logShowRepeats: true,
   statsUnusedOnly: false,  // the Stats tab shows only the unused holds
+  statsVariations: true,   // and counts variations as climbs of their own
   listScroll: {},       // scrollTop per list view, restored when you come back
+  listCache: {},        // { key, json, routes } the Climbs and Legacy lists last fetched, drawn at once on return
+  listCounts: {},       // the Legacy and Drafts counts last seen
   lastRouteId: null,    // the climb last opened, marked in the list on return
+  boardRouteId: null,   // the climb shown on the Climbs list's board (outlined in the list)
   lastCircuitId: null,  // likewise for the circuit last opened
+  lastDraftId: null,    // and for the draft just saved
   climbSequence: null,  // { legacy, ids } of the problems last listed, for swiping between them
+  logOpenDays: {},      // Logbook days opened or closed by hand: { 'YYYY-MM-DD': open }
 };
 
 const panel = document.getElementById('panel');
@@ -228,11 +237,14 @@ function parseHash() {
     case 'edit':
       return { view: 'editor', params: { routeId: Number(id) } };
     case 'new':
-      return { view: 'editor', params: { parentId: Number(params.get('parent')) || null } };
+      // ?draft= picks up a saved draft.
+      return { view: 'editor', params: { parentId: Number(params.get('parent')) || null, draftId: Number(params.get('draft')) || null } };
     case 'logbook':
       return { view: 'logbook', params: {} };
     case 'legacy':
       return { view: 'legacy', params: { legacy: true } };
+    case 'drafts':
+      return { view: 'drafts', params: {} };
     case 'holds':
       return { view: 'holds', params: {} };
     case 'stats':
@@ -244,11 +256,16 @@ function parseHash() {
 
 async function render() {
   const { view, params } = parseHash();
+  if (view === 'holds' && PHONE.matches) {
+    location.replace('#/climbs');   // an old link to the Wall tab
+    return;
+  }
   current?.destroy?.();
   current = null;
   // From one climb to the next (or the same one, after logging a send), the
-  // board keeps the old route until the new one is drawn over it.
-  board.reset({ keepRoute: view === 'route' && currentView === 'route' });
+  // board keeps the old route until the new one is drawn over it; back on the
+  // Climbs list, the climb just left stays on the board (climbs.js).
+  board.reset({ keepRoute: currentView === 'route' && ['route', 'climbs', 'legacy'].includes(view) });
   currentView = view;
   const nav = view === 'route' && params.circuitId ? 'circuits' : NAV_FOR_VIEW[view];
   document.querySelectorAll('.tabs a').forEach((a) => a.classList.toggle('active', a.dataset.nav === nav));
@@ -279,7 +296,7 @@ async function render() {
   } finally {
     clearTimeout(placeholder);
     // A swipe whose next page didn't take it over must not leave the wall offset.
-    if (token === renderToken) settleSwipe(boardEl);
+    if (token === renderToken) settleSwipe(board.swipeLayer);
   }
 }
 

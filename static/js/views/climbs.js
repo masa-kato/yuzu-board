@@ -1,4 +1,10 @@
-import { GRADES, append, cap, fmtDate, gradePips, h, icon, trackListScroll } from '../ui.js';
+import { GRADES, append, fmtDate, gradeLabel, gradePips, h, icon, sentMark, trackListScroll } from '../ui.js';
+import { enableSheet } from '../sheet.js';
+import { consumeSwipe, enableSwipe, settleSwipe } from '../swipe.js';
+import { prefetchRoute } from './routeDetail.js';
+
+const PHONE = window.matchMedia('(max-width: 900px)');
+const HOVER = window.matchMedia('(hover: hover)');
 
 const SCOPES = [
   ['all', 'All fields'],
@@ -41,6 +47,26 @@ export function listQuery(state, legacy) {
   };
 }
 
+// Active | Legacy | Drafts, with how many legacy routes and drafts there are.
+// The Drafts page uses it too.
+export function listSwitch(ctx, current) {
+  // The counts last seen show at once, until the fresh ones arrive.
+  const known = ctx.state.listCounts;
+  const counts = {
+    legacy: h('span', { class: 'segment-count' }, known.legacy || ''),
+    drafts: h('span', { class: 'segment-count' }, known.drafts || ''),
+  };
+  const show = (key) => (items) => {
+    known[key] = items.length ? String(items.length) : '';
+    if (!ctx.stale()) counts[key].textContent = known[key];
+  };
+  ctx.api.routes({ legacy: 1 }).then(show('legacy')).catch(() => {});
+  ctx.api.drafts().then(show('drafts')).catch(() => {});
+  const link = (key, label) => h('a', { href: `#/${key}`, 'aria-current': key === current ? 'page' : null }, label, counts[key]);
+  return h('nav', { class: 'segmented-nav', 'aria-label': 'Which routes' },
+    link('climbs', 'Active'), link('legacy', 'Legacy'), link('drafts', 'Drafts'));
+}
+
 function impossibleTag() {
   return h('span', { class: 'badge impossible-tag' }, 'Not possible');
 }
@@ -60,10 +86,7 @@ export async function render(root, ctx, { legacy = false } = {}) {
 
   // ---- controls ------------------------------------------------------------
   const count = h('span', { class: 'muted list-count' });
-  const legacyCount = h('span', { class: 'segment-count' });
-  const segments = h('nav', { class: 'segmented-nav', 'aria-label': 'Which routes' },
-    h('a', { href: '#/climbs', 'aria-current': legacy ? null : 'page' }, 'Active'),
-    h('a', { href: '#/legacy', 'aria-current': legacy ? 'page' : null }, 'Legacy', legacyCount));
+  const segments = listSwitch(ctx, legacy ? 'legacy' : 'climbs');
 
   const search = h('input', {
     type: 'search', class: 'search-input', value: f.q, 'aria-label': 'Search climbs',
@@ -137,7 +160,7 @@ export async function render(root, ctx, { legacy = false } = {}) {
     // `append` skips the hold chip when there is none (replaceChildren would print "null").
     chips.replaceChildren();
     append(chips, [
-      ...GRADES.map((g) => chip(cap(g), f.grades.includes(g), () => {
+      ...GRADES.map((g) => chip(gradeLabel(g), f.grades.includes(g), () => {
         f.grades = f.grades.includes(g) ? f.grades.filter((x) => x !== g) : [...f.grades, g];
         filtersChanged();
       }, { class: `grade-${g}` })),
@@ -154,7 +177,7 @@ export async function render(root, ctx, { legacy = false } = {}) {
       h('button', { type: 'button', class: 'chip-x', 'aria-label': `Remove filter: ${label}`, onClick: remove }, icon('x', { size: 12 })));
     activeRow.replaceChildren();
     append(activeRow, [
-      ...f.grades.map((g) => removable(cap(g), () => {
+      ...f.grades.map((g) => removable(gradeLabel(g), () => {
         f.grades = f.grades.filter((x) => x !== g);
         filtersChanged();
       })),
@@ -205,29 +228,33 @@ export async function render(root, ctx, { legacy = false } = {}) {
 
   // ---- the Filters sheet (phones) -----------------------------------------------
   const showButton = h('button', { type: 'button', class: 'btn btn-primary', onClick: () => sheet.close() }, 'Show climbs');
-  const slots = { show: h('div'), scope: h('div'), filters: h('div'), sort: h('div') };
-  const section = (label, slot) => h('section', { class: 'sheet-section' }, h('h3', { class: 'sheet-label' }, label), slot);
+  const slots = { show: h('div'), search: h('div', { class: 'search-field' }), scope: h('div'), filters: h('div'), sort: h('div') };
+  const section = (label, ...slot) => h('section', { class: 'sheet-section' }, h('h3', { class: 'sheet-label' }, label), slot);
   const sheet = h('dialog', { class: 'dialog sheet filter-sheet', 'aria-label': 'Filter and sort' },
     h('div', { class: 'sheet-head' },
       h('h2', {}, 'Filter & sort'),
       h('button', { type: 'button', class: 'icon-btn', 'aria-label': 'Close', onClick: () => sheet.close() }, icon('x', { size: 18 }))),
     h('div', { class: 'sheet-body' },
-      section('Show', slots.show), section('Search in', slots.scope), section('Filters', slots.filters), section('Sort', slots.sort)),
+      section('Show', slots.show), section('Search', slots.search, slots.scope), section('Filters', slots.filters), section('Sort', slots.sort)),
     h('div', { class: 'sheet-foot' }, showButton));
   const borrowed = [];   // [node, placeholder] while the sheet holds them
+  const listPlaceholder = search.placeholder;
 
   function openSheet() {
-    for (const [node, slot] of [[segments, slots.show], [scope, slots.scope], [chips, slots.filters], [sortRow, slots.sort]]) {
+    for (const [node, slot] of [[segments, slots.show], [search, slots.search], [scope, slots.scope], [chips, slots.filters], [sortRow, slots.sort]]) {
       const mark = document.createComment('');
       node.replaceWith(mark);
       slot.append(node);
       borrowed.push([node, mark]);
     }
+    if (!legacy) search.placeholder = 'Search climbs';   // the board is out of reach here
     document.body.append(sheet);
     sheet.showModal();
   }
   sheet.addEventListener('close', () => {
+    dropFilters();
     for (const [node, mark] of borrowed.splice(0)) mark.replaceWith(node);
+    search.placeholder = listPlaceholder;
     sheet.remove();
   });
   // A tap on the dimmed backdrop closes it.
@@ -238,18 +265,117 @@ export async function render(root, ctx, { legacy = false } = {}) {
   });
 
   // ---- list ----------------------------------------------------------------------
-  const list = h('div', { class: 'route-list' });
+  // (climb-list: on phones each climb is one line, its name and yuzus)
+  const list = h('div', { class: 'route-list climb-list' });
   const scroller = h('div', { class: 'list-scroll' },
     legacy && h('p', { class: 'hint list-note' }, 'Routes retired because a hold they use was removed from the wall. Removed holds show as faded, red-ringed ghosts.'),
     list);
   const scrolling = trackListScroll(root, scroller, state.listScroll, legacy ? 'legacy' : 'climbs');
+  // On phones the list is a sheet under the board that a swipe up raises over it (sheet.js).
+  const listSheet = enableSheet(root.parentElement, scroller);
+
+  // ---- typing on phones ------------------------------------------------------------
+  // The keyboard covers the lower half of a phone's screen, and the search
+  // sits under the board, so focusing it raises the list's sheet; it stays
+  // up until swiped down or a climb is picked. The Filters sheet instead takes
+  // the whole screen while its search is typed in (app.css `typing`), and
+  // drops back a moment after the keyboard closes, so the tap that closed it
+  // still lands where aimed. The keyboard's Search key closes the keyboard.
+  let dropTimer;
+  function dropFilters() {
+    clearTimeout(dropTimer);
+    sheet.classList.remove('typing');
+  }
+  search.addEventListener('focus', () => {
+    clearTimeout(dropTimer);
+    if (!PHONE.matches) return;
+    if (sheet.open) sheet.classList.add('typing');
+    else listSheet.raise();
+  });
+  search.addEventListener('blur', () => {
+    clearTimeout(dropTimer);
+    if (sheet.classList.contains('typing')) dropTimer = setTimeout(dropFilters, 300);
+  });
+  search.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && PHONE.matches) search.blur();
+  });
+
+  // ---- the climb on the board ------------------------------------------------------
+  // On phones a tap on a climb shows it on the board, its row outlined, and a
+  // second tap (or its ›) opens it. With a mouse, hovering a climb shows it
+  // for as long as the pointer stays, and a click opens it. Coming back from
+  // a climb, that climb stays on the board and outlined.
+  let climbById = new Map();   // every climb drawn (problems and variations), by id
+
+  const open = (id) => ctx.go(`#/route/${id}`);
+
+  // Shows climb `id` on the board (none if it isn't in the list) and returns
+  // its card, now outlined.
+  function showOnBoard(id) {
+    const climb = id != null ? climbById.get(id) : null;
+    state.boardRouteId = climb ? id : null;
+    board.setRoute(climb ? climb.holds : [], { instant: true });
+    list.querySelector('.route-card.on-board')?.classList.remove('on-board');
+    const row = climb && list.querySelector(`[data-route-id="${id}"]`);
+    const card = row ? row.closest('.route-card') : null;
+    card?.classList.add('on-board');
+    return card;
+  }
+
+  // Scrolls the list so `card` is its top row.
+  function toTop(card) {
+    const pad = parseFloat(getComputedStyle(scroller).paddingTop) || 0;
+    scroller.scrollTop += card.getBoundingClientRect().top - scroller.getBoundingClientRect().top - pad;
+  }
+
+  // A tap on a climb's row on a phone: onto the board, or open if it's there.
+  // Picked from the raised sheet, the sheet lowers with that climb on top.
+  function pick(id) {
+    if (state.boardRouteId === id) return open(id);
+    const raised = listSheet.isUp();
+    const card = showOnBoard(id);
+    if (raised && card) {
+      listSheet.lower();
+      toTop(card);
+    }
+  }
+
+  // On phones a swipe across the board steps to the problem before or after
+  // the one on it, in list order (variations are skipped, as on a climb's
+  // page). That one goes on the board and becomes the top row; its holds slide
+  // in while the wall stays put.
+  function neighbour(dir) {
+    const ids = state.climbSequence?.ids || [];
+    const on = climbById.get(state.boardRouteId);
+    const at = on ? ids.indexOf(on.parent_id ?? on.id) : -1;
+    if (at < 0) return dir > 0 ? ids[0] : undefined;   // nothing on the board yet: start at the top
+    return ids[at + dir];
+  }
+  const stopSwipe = enableSwipe(ctx.boardEl, {
+    moving: board.swipeLayer,
+    canStep: (dir) => !!neighbour(dir),
+    // not zoomed in (a drag pans then), nor with the sheet raised over the board
+    canSwipe: () => PHONE.matches && !board.isZoomed() && !listSheet.isUp(),
+    onStep: (dir) => {
+      if (ctx.stale()) {
+        settleSwipe(board.swipeLayer);   // left the page mid-swipe
+        return;
+      }
+      const card = showOnBoard(neighbour(dir));
+      if (card) toTop(card);
+      consumeSwipe(board.swipeLayer);
+    },
+  });
 
   function previewOn(route) {
+    const show = (holds) => () => {
+      if (HOVER.matches) board.preview(holds);
+    };
     return {
-      onMouseenter: () => board.preview(route.holds),
-      onMouseleave: () => board.preview(null),
-      onFocus: () => board.preview(route.holds),
-      onBlur: () => board.preview(null),
+      onMouseenter: show(route.holds),
+      onMouseleave: show(null),
+      onFocus: show(route.holds),
+      onBlur: show(null),
     };
   }
 
@@ -296,11 +422,12 @@ export async function render(root, ctx, { legacy = false } = {}) {
     return h('button', {
       type: 'button', class: `variation-row${v.possible || legacy ? '' : ' impossible'}`, dataset: { routeId: v.id },
       title: v.possible ? '' : `Uses removed hold${v.removed_holds.length > 1 ? 's' : ''}: ${v.removed_holds.join(', ')}`,
+      onPointerdown: () => prefetchRoute(ctx, v.id),
       onClick: () => ctx.go(`#/route/${v.id}`), ...previewOn(v),
     },
     gradePips(v.grade, { label: false }),
     h('span', { class: 'route-name' }, v.name),
-    v.sent_by_me && h('span', { class: 'sent-check', title: 'You have sent this' }, icon('check', { size: 14, label: 'Sent' })),
+    v.sent_by_me && sentMark(14),
     !v.possible && !legacy && impossibleTag(),
     h('span', { class: 'muted small' }, variationStat(v)));
   }
@@ -318,16 +445,28 @@ export async function render(root, ctx, { legacy = false } = {}) {
     return h('article', { class: `route-card${route.matched ? '' : ' unmatched'}${legacy ? ' legacy' : ''}`, dataset: { routeId: route.id } },
       h('button', {
         type: 'button', class: `route-main${baseImpossible ? ' impossible' : ''}`,
-        onClick: () => ctx.go(`#/route/${route.id}`), ...previewOn(route),
+        // fetched while the finger is still down, so the climb opens at once
+        // (on phones, only once it's on the board: then a tap opens it)
+        onPointerdown: () => {
+          if (!PHONE.matches || state.boardRouteId === route.id) prefetchRoute(ctx, route.id);
+        },
+        onClick: () => (PHONE.matches ? pick(route.id) : open(route.id)), ...previewOn(route),
       },
       h('div', { class: 'route-title' },
         gradePips(route.grade, { label: false }),
         h('span', { class: 'route-name' }, route.name),
-        route.sent_by_me && h('span', { class: 'sent-check', title: 'You have sent this' }, icon('check', { size: 15, label: 'Sent' })),
+        route.sent_by_me && sentMark(16),
+        route.variation_sent && sentMark(16, { half: true }),
         baseImpossible && impossibleTag()),
       metaLines(route),
       legacy && h('div', { class: 'route-meta removed-note' }, `Retired — removed hold${removed.length > 1 ? 's' : ''}: ${removed.join(', ')}`),
       !route.matched && h('div', { class: 'route-meta' }, 'Only a variation matches these filters')),
+      // phones: opens the climb (a tap on the row shows it on the board)
+      h('button', {
+        type: 'button', class: 'route-open', 'aria-label': `Open ${route.name}`, title: 'Open',
+        onPointerdown: () => prefetchRoute(ctx, route.id),
+        onClick: () => open(route.id),
+      }, icon('chevron-right', { size: 18 })),
       someImpossible && h('div', { class: 'family-warning' }, icon('alert', { size: 14 }),
         `Not all variations are possible — ${route.impossible_total} of ${total + 1} use${route.impossible_total === 1 ? 's' : ''} a removed hold`),
       total > 0 && h('details', { class: 'variations', open: !route.matched || someImpossible || null },
@@ -335,30 +474,51 @@ export async function render(root, ctx, { legacy = false } = {}) {
         route.variations.map(variationRow)));
   }
 
-  // Briefly outlines the climb that was open before coming back to the list.
-  function markLastViewed() {
-    const id = state.lastRouteId;
+  // Coming back from a climb (the last one shown, after any swipes), it is
+  // the one on the board: the top row on a phone, in view otherwise.
+  const returned = state.lastRouteId != null;
+  if (returned) {
+    state.boardRouteId = state.lastRouteId;
     state.lastRouteId = null;
-    if (!id) return;
-    const row = list.querySelector(`[data-route-id="${id}"]`);
-    if (!row) return;
-    row.closest('details')?.setAttribute('open', '');   // a variation: show it
-    const target = row.closest('.route-card') || row;
-    target.classList.add('recent');
-    const box = target.getBoundingClientRect();
-    const view = scroller.getBoundingClientRect();
-    if (box.top < view.top || box.bottom > view.bottom) target.scrollIntoView({ block: 'nearest' });
   }
+
+  function revealReturned() {
+    const card = returned && list.querySelector('.route-card.on-board');
+    if (!card) return;
+    if (PHONE.matches) return toTop(card);
+    list.querySelector(`.variation-row[data-route-id="${state.boardRouteId}"]`)?.closest('details')?.setAttribute('open', '');
+    const box = card.getBoundingClientRect();
+    const view = scroller.getBoundingClientRect();
+    if (box.top < view.top || box.bottom > view.bottom) card.scrollIntoView({ block: 'nearest' });
+  }
+
+  // The list as last fetched, per page and query: coming back draws it at
+  // once, and redraws it only if the fresh copy differs.
+  const cacheKey = legacy ? 'legacy' : 'climbs';
+  const queryKey = () => JSON.stringify(listQuery(state, legacy));
+  let drawn = null;   // the JSON of the climbs on show
 
   // `reset` (a filter or sort change) jumps back to the top of the list;
   // otherwise the list returns to where it was left.
   async function load({ reset = false } = {}) {
     const token = ++loadToken;
     ctx.savePrefs();
+    const key = queryKey();
     list.setAttribute('aria-busy', 'true');
     const routes = await ctx.api.routes(listQuery(state, legacy));
     if (token !== loadToken || ctx.stale()) return;
     list.removeAttribute('aria-busy');
+    const json = JSON.stringify(routes);
+    state.listCache[cacheKey] = { key, json, routes };
+    if (json !== drawn) {
+      draw(routes, json);
+      if (!reset) scrolling.restore();
+    }
+    if (reset) scrolling.reset();
+  }
+
+  function draw(routes, json) {
+    drawn = json;
     // The route page steps through these problems, in this order, with a swipe.
     state.climbSequence = { legacy, ids: routes.map((r) => r.id) };
     const climbCount = routes.reduce((n, r) => n + (r.matched ? 1 : 0) + r.variations.length, 0);
@@ -375,24 +535,28 @@ export async function render(root, ctx, { legacy = false } = {}) {
         h('button', { type: 'button', class: 'btn btn-primary', onClick: () => ctx.go('#/new') }, 'Set the first boulder'));
     }
     list.replaceChildren(...(routes.length ? routes.map(card) : [empty]));
-    if (reset) scrolling.reset();
-    else scrolling.restore();
+    climbById = new Map(routes.flatMap((r) => [[r.id, r], ...r.variations.map((v) => [v.id, v])]));
+    showOnBoard(state.boardRouteId);
   }
 
   root.classList.add('view-list');
   root.replaceChildren(controls, scroller);
-  list.replaceChildren(...skeletonCards());
   if (!legacy) board.setMode('pick');
   board.setPicked(legacy ? null : f.holdId);
   renderChips();
   renderDir();
 
-  ctx.api.routes({ legacy: 1 }).then((families) => {
-    if (!ctx.stale()) legacyCount.textContent = families.length ? String(families.length) : '';
-  }).catch(() => {});
-
-  await load();
-  if (!ctx.stale()) markLastViewed();
+  const cached = state.listCache[cacheKey];
+  if (cached && cached.key === queryKey()) {
+    draw(cached.routes, cached.json);
+    scrolling.restore();
+    revealReturned();
+    load();   // and quietly check for changes
+  } else {
+    list.replaceChildren(...skeletonCards());
+    await load();
+    if (!ctx.stale()) revealReturned();
+  }
 
   return {
     onHoldClick(hold) {
@@ -401,6 +565,9 @@ export async function render(root, ctx, { legacy = false } = {}) {
     destroy() {
       clearTimeout(debounce);
       scrolling.stop();
+      listSheet.stop();
+      stopSwipe();
+      dropFilters();
       if (sheet.open) sheet.close();   // e.g. Legacy was tapped inside it
     },
   };

@@ -35,7 +35,7 @@ CREATE TABLE IF NOT EXISTS routes (
     id             INTEGER PRIMARY KEY,
     name           TEXT NOT NULL,
     parent_id      INTEGER REFERENCES routes(id) ON DELETE CASCADE,
-    grade          TEXT NOT NULL CHECK (grade IN ('easy', 'medium', 'hard', 'project')),
+    grade          TEXT NOT NULL CHECK (grade IN ('warmup', 'easy', 'medium', 'hard', 'project')),
     setter_id      INTEGER REFERENCES climbers(id) ON DELETE SET NULL,
     set_date       TEXT NOT NULL,
     fa_climber_id  INTEGER REFERENCES climbers(id) ON DELETE SET NULL,
@@ -49,6 +49,34 @@ CREATE TABLE IF NOT EXISTS route_holds (
     hold_id   INTEGER NOT NULL REFERENCES holds(id) ON DELETE CASCADE,
     role      TEXT NOT NULL CHECK (role IN ('start', 'hand', 'foot', 'finish')),
     PRIMARY KEY (route_id, hold_id)
+);
+
+-- A climb being set but not published yet: what the Set boulder form held when
+-- Save draft was pressed. Drafts are shared by everyone and live apart from
+-- `routes`, so they never show in the climb lists, stats or circuits. The name
+-- and set date may be blank until it is published (POST /api/routes with
+-- draft_id), which deletes the draft. `saved_by` is whoever saved it last.
+-- Ids are never reused, so a page still open on a published draft can't
+-- overwrite a newer one.
+CREATE TABLE IF NOT EXISTS drafts (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    name        TEXT NOT NULL DEFAULT '',
+    parent_id   INTEGER REFERENCES routes(id) ON DELETE CASCADE,
+    grade       TEXT NOT NULL CHECK (grade IN ('warmup', 'easy', 'medium', 'hard', 'project')),
+    setter_id   INTEGER REFERENCES climbers(id) ON DELETE SET NULL,
+    set_date    TEXT,
+    notes       TEXT NOT NULL DEFAULT '',
+    saved_by    INTEGER REFERENCES climbers(id) ON DELETE SET NULL,
+    created_at  TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+    updated_at  TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+);
+
+-- A draft's holds, as route_holds. Deleting a hold for good drops it from drafts.
+CREATE TABLE IF NOT EXISTS draft_holds (
+    draft_id  INTEGER NOT NULL REFERENCES drafts(id) ON DELETE CASCADE,
+    hold_id   INTEGER NOT NULL REFERENCES holds(id) ON DELETE CASCADE,
+    role      TEXT NOT NULL CHECK (role IN ('start', 'hand', 'foot', 'finish')),
+    PRIMARY KEY (draft_id, hold_id)
 );
 
 -- One row per send. Repeats are derived: any send after a climber's first
@@ -108,5 +136,6 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_colors_hex ON colors(hex);
 CREATE INDEX IF NOT EXISTS idx_routes_parent ON routes(parent_id);
 CREATE INDEX IF NOT EXISTS idx_circuit_routes_route ON circuit_routes(route_id);
 CREATE INDEX IF NOT EXISTS idx_route_holds_hold ON route_holds(hold_id);
+CREATE INDEX IF NOT EXISTS idx_draft_holds_hold ON draft_holds(hold_id);
 CREATE INDEX IF NOT EXISTS idx_sends_route ON sends(route_id, climber_id);
 CREATE INDEX IF NOT EXISTS idx_sends_climber ON sends(climber_id, sent_date);

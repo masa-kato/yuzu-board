@@ -8,6 +8,8 @@ import tempfile
 import unittest
 import zlib
 
+from PIL import Image
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import db  # noqa: E402
@@ -68,6 +70,45 @@ class NamingTest(unittest.TestCase):
         self.assertAlmostEqual(dist, (3.1 ** 2 + 1.2 ** 2) ** 0.5)
         self.assertFalse(geometry.on_panel(50, geometry.HEIGHT + 0.5))
         self.assertTrue(geometry.on_panel(50, geometry.FOOT_TOP + 4))
+
+    def test_side_panels(self):
+        # 8" wide, 1" either side of the main panel, from the top of the wall
+        # to the bottom of the main panel (not beside the footboard).
+        self.assertEqual((geometry.LEFT_X, geometry.RIGHT_X, geometry.MAX_X), (-9.0, 121.0, 129.0))
+        self.assertEqual(geometry.panel_of(-5, 50), "left")
+        self.assertEqual(geometry.panel_of(125, 50), "right")
+        self.assertEqual(geometry.panel_of(-9, 0), "left")                    # edges count
+        self.assertEqual(geometry.panel_of(129, geometry.HEIGHT), "right")
+        for x, y in [(-0.5, 50), (120.5, 50), (-9.5, 50), (129.5, 50),       # gaps, past the edges
+                     (-5, geometry.HEIGHT + 0.5), (-5, geometry.FOOT_TOP + 4), (125, -1)]:
+            self.assertIsNone(geometry.panel_of(x, y), (x, y))
+        self.assertEqual((geometry.hold_letter(-5, 50), geometry.hold_letter(125, 50)), ("L", "R"))
+        x, y = geometry.tnut_xy(5, 11)
+        self.assertEqual(geometry.hold_letter(x + 1, y), "F")
+        self.assertEqual(geometry.hold_grid(-5, 50, None, None), "Left panel")
+        self.assertEqual(geometry.hold_grid(x, y, 5, 11), "F12")
+        spec = geometry.board_spec()
+        self.assertEqual((spec["min_x"], spec["max_x"]), (-9.0, 129.0))
+        self.assertEqual(spec["sides"]["letters"], {"left": "L", "right": "R"})
+
+    def test_ceiling(self):
+        # 18" high, 1" above the main panel and as wide as it.
+        self.assertEqual((geometry.CEIL_TOP, geometry.CEIL_BOTTOM, geometry.MIN_Y), (-19.0, -1.0, -19.0))
+        self.assertEqual(geometry.panel_of(50, -10), "ceiling")
+        self.assertEqual(geometry.panel_of(0, -19), "ceiling")                # edges count
+        self.assertEqual(geometry.panel_of(120, -1), "ceiling")
+        for x, y in [(50, -0.5), (50, -19.5), (-0.5, -10), (120.5, -10),      # gap, past the edges
+                     (-5, -10), (125, -10)]:                                  # not over the side panels
+            self.assertIsNone(geometry.panel_of(x, y), (x, y))
+        self.assertTrue(geometry.tnut_free(50, -10))
+        self.assertFalse(geometry.tnut_free(50, 10))
+        # The columns carry on across it: a hold takes the letter of the one it's under.
+        f = geometry.tnut_xy(5, 0)[0]
+        self.assertEqual(geometry.hold_letter(f + 1, -10), "F")
+        self.assertEqual(geometry.hold_letter(geometry.tnut_xy(28, 0)[0], -18), "C")   # AC
+        self.assertEqual(geometry.hold_grid(f + 1, -10, None, None), "Ceiling, column F")
+        spec = geometry.board_spec()
+        self.assertEqual((spec["min_y"], spec["ceiling"]["top"], spec["ceiling"]["height"]), (-19.0, -19.0, 18.0))
 
     def test_every_letter_has_nouns(self):
         self.assertEqual(sorted(hold_names.NOUNS), [chr(c) for c in range(ord("A"), ord("Z") + 1)])
@@ -147,7 +188,8 @@ class HoldApiTest(unittest.TestCase):
         self.upload(status=400, image=b"GIF89a not a png", x=x, y=y, name="Fern")
         self.upload(status=400, x=x, y=y, name="Badger")        # wrong letter
         self.upload(status=400, x=x, y=y, name="falcon")        # taken (case-insensitive)
-        self.upload(status=400, x=-5, y=y, name="Fern")         # off the wall
+        self.upload(status=400, x=-0.5, y=y, name="Fern")       # in the gap beside the main panel
+        self.upload(status=400, x=-9.5, y=y, name="Fern")       # past the left panel
         res = self.client.post("/api/holds", data={"x": x, "y": y}, content_type="multipart/form-data")
         self.assertEqual(res.status_code, 400)
 
@@ -165,6 +207,44 @@ class HoldApiTest(unittest.TestCase):
         uses = self.client.get("/api/routes?hold_id=%d" % hold["id"]).get_json()
         self.assertEqual([r["id"] for r in uses], [rid])
         self.assertIn("foot", self.client.get("/api/board").get_json())
+
+    def test_upload_to_side_panels(self):
+        hold = self.upload(x=-5, y=40, name="Lantern")
+        self.assertEqual((hold["panel"], hold["grid"], hold["offset"]), ("left", "Left panel", None))
+        self.assertEqual((hold["tnut_col"], hold["tnut_row"]), (None, None))
+        hold = self.upload(x=125, y=40, name="Raven")
+        self.assertEqual((hold["panel"], hold["grid"], hold["offset"]), ("right", "Right panel", None))
+        self.assertTrue(self.upload(x=-5, y=80)["name"].startswith("L"))      # suggested
+        error = self.upload(status=400, x=-5, y=60, name="Falcon")["error"]   # needs an L name
+        self.assertIn("left panel", error)
+        self.upload(status=400, x=-5, y=geometry.FOOT_TOP + 4, name="Lemur")  # nothing beside the footboard
+        # A route can use a side-panel hold.
+        rid = self.route("Wide Load", [1, hold["id"]])
+        self.assertEqual([r["id"] for r in self.client.get("/api/routes?hold_id=%d" % hold["id"]).get_json()], [rid])
+
+    def test_upload_to_ceiling(self):
+        x = geometry.tnut_xy(5, 0)[0] + 1   # over column F
+        hold = self.upload(x=x, y=-10, name="Fern")
+        self.assertEqual((hold["panel"], hold["grid"], hold["offset"]), ("ceiling", "Ceiling, column F", None))
+        self.assertEqual((hold["tnut_col"], hold["tnut_row"]), (None, None))
+        self.assertTrue(self.upload(x=x, y=-4)["name"].startswith("F"))       # suggested
+        error = self.upload(status=400, x=x, y=-15, name="Lantern")["error"]  # needs an F name
+        self.assertIn("column F on the ceiling", error)
+        self.upload(status=400, x=x, y=-0.5, name="Fig")                       # in the gap
+        self.upload(status=400, x=x, y=-19.5, name="Fig")                      # past the top
+        self.upload(status=400, x=-5, y=-10, name="Lemur")                     # nothing over the side panels
+        rid = self.route("Roof Problem", [1, hold["id"]])
+        self.assertEqual([r["id"] for r in self.client.get("/api/routes?hold_id=%d" % hold["id"]).get_json()], [rid])
+
+    def test_moving_a_hold_to_a_side_panel_and_back(self):
+        res = self.client.put("/api/holds/2", data={"x": 125, "y": 40, "name": "Rocket"},
+                              content_type="multipart/form-data")
+        self.assertEqual(res.status_code, 200, res.get_json())
+        self.assertEqual((res.get_json()["grid"], res.get_json()["tnut_col"]), ("Right panel", None))
+        x, y = geometry.tnut_xy(5, 11)
+        res = self.client.put("/api/holds/2", data={"x": x, "y": y, "name": "Falcon"},
+                              content_type="multipart/form-data")
+        self.assertEqual((res.get_json()["grid"], res.get_json()["offset"]), ("F12", 0))
 
     def test_color_round_trip_and_validation(self):
         x, y = geometry.tnut_xy(5, 3)
@@ -277,6 +357,123 @@ class HoldApiTest(unittest.TestCase):
         self.client.delete("/api/holds/%d" % hold["id"])
         self.client.delete("/api/holds/%d/permanent" % hold["id"])
         self.assertEqual(self.board_copies(), [])
+
+    def test_touch_screen_looks(self):
+        """Touch screens draw holds from ready-made looks of the board copy
+        (board.js LIGHT), each as big as the copy is drawn."""
+        solid = io.BytesIO()
+        Image.new("RGBA", (40, 30), (200, 60, 60, 255)).save(solid, "PNG")
+        x, y = geometry.tnut_xy(5, 3)
+        hold = self.upload(image=solid.getvalue(), x=x, y=y, size=2, name="Ferret")
+        base = hold["board_url"][:-4]   # ...-128: a 40 px image, drawn 128 px across
+
+        def pixels(suffix):
+            res = self.client.get("%s-%s.png" % (base, suffix))
+            self.assertEqual(res.status_code, 200, suffix)
+            self.assertGreaterEqual(res.cache_control.max_age, 30 * 24 * 3600)
+            im = Image.open(io.BytesIO(res.data)).convert("RGBA")
+            res.close()
+            return im
+
+        shape = pixels("s")                        # black, scaled up to the drawn size
+        self.assertEqual((shape.size, shape.getpixel((64, 48))), ((128, 96), (0, 0, 0, 255)))
+        border = pixels("o5")                      # with 5 px of border all round
+        self.assertEqual(border.size, (138, 106))
+        self.assertEqual(border.getpixel((69, 53)), (200, 60, 60, 255))   # the hold
+        self.assertEqual(border.getpixel((2, 53)), (255, 255, 255, 230))  # its border, at 0.9
+        self.assertEqual(border.getpixel((0, 0))[3], 0)                   # rounded at the corners
+        # #1e3a8a laid over the hold at 75%, on its own or inside the border.
+        tinted = (200 * 0.25 + 0x1e * 0.75, 60 * 0.25 + 0x3a * 0.75, 60 * 0.25 + 0x8a * 0.75, 255)
+        for suffix, size, middle in [("t1e3a8a75", (128, 96), (64, 48)), ("o5t1e3a8a75", (138, 106), (69, 53))]:
+            im = pixels(suffix)
+            self.assertEqual(im.size, size)
+            for got, want in zip(im.getpixel(middle), tinted):
+                self.assertAlmostEqual(got, want, delta=1)
+        self.assertEqual(pixels("o5t1e3a8a75").getpixel((2, 53)), (255, 255, 255, 230))   # border untinted
+        self.assertEqual(len(self.board_copies()), 4)
+        for suffix in ["o0", "o25", "o", "x", "c1e3a8a", "t1e3a8a", "t1e3a8a101", "o5t", "o5s",
+                       "T1E3A8A75", "s-s"]:
+            res = self.client.get("%s-%s.png" % (base, suffix))
+            self.assertEqual(res.status_code, 404, suffix)
+            res.close()
+        self.assertEqual(len(self.board_copies()), 4)
+        # They go with the image, as the copy does.
+        self.client.delete("/api/holds/%d" % hold["id"])
+        self.client.delete("/api/holds/%d/permanent" % hold["id"])
+        self.assertEqual(self.board_copies(), [])
+
+    def picture(self, status=200, ppi=12, border=2, tint=0):
+        res = self.client.get("/api/holds/picture?ppi=%s&border=%s&tint=%s" % (ppi, border, tint))
+        self.assertEqual(res.status_code, status, res.get_json())
+        return res.get_json()
+
+    def picture_image(self, url):
+        res = self.client.get(url)
+        self.assertEqual((res.status_code, res.mimetype), (200, "image/webp"))
+        self.assertGreaterEqual(res.cache_control.max_age, 30 * 24 * 3600)
+        im = Image.open(io.BytesIO(res.data)).convert("RGBA")
+        res.close()
+        return im
+
+    def test_wall_picture(self):
+        """Touch screens draw every hold on the wall from one picture
+        (board.js LIGHT), made by the server."""
+        def solid(w, h, rgb=(200, 60, 60)):
+            out = io.BytesIO()
+            Image.new("RGBA", (w, h), rgb + (255,)).save(out, "PNG")
+            return out.getvalue()
+
+        def at(pic, x, y):   # wall inches to picture pixels
+            return round((x - geometry.MIN_X) * 12), round((y - geometry.MIN_Y) * 12)
+
+        x, y = geometry.tnut_xy(4, 10)    # E11, a bolt hole ((4 + 10) is even)
+        hold = self.upload(image=solid(40, 40), x=x, y=y, size=3)
+        bx, by = geometry.tnut_xy(20, 20)  # a bar, 6" by 1", turned upright
+        bar = self.upload(image=solid(60, 10, (30, 90, 200)), x=bx, y=by, size=6, rotation=90)
+        pic = self.picture()
+        self.assertEqual((pic["x"], pic["y"], pic["width"], pic["height"]),
+                         (geometry.MIN_X, geometry.MIN_Y, geometry.MAX_X - geometry.MIN_X, geometry.TOTAL_HEIGHT - geometry.MIN_Y))
+        im = self.picture_image(pic["url"])
+        self.assertEqual(im.size, (round(pic["width"] * 12), round(pic["height"] * 12)))
+        # Each hold where it sits, in its color (lossy, so roughly); the bar upright.
+        for (px, py), rgb in [(at(pic, x, y), (200, 60, 60)), (at(pic, bx, by - 2.5), (30, 90, 200))]:
+            r, g, b, a = im.getpixel((px, py))
+            self.assertEqual(a, 255)
+            for got, want in zip((r, g, b), rgb):
+                self.assertAlmostEqual(got, want, delta=16)
+        self.assertEqual(im.getpixel(at(pic, bx + 2.5, by))[3], 0)   # not lying across
+        self.assertEqual(im.getpixel(at(pic, 60, 60))[3], 0)         # bare wall
+        # The bolt hole under the hold is covered; one in the open isn't.
+        holes = geometry.bolt_holes()
+        self.assertIn(holes.index((x, y)), pic["covered"])
+        self.assertNotIn(holes.index(geometry.tnut_xy(30, 30)), pic["covered"])
+
+        # The same holds give the same picture, not drawn again.
+        board_dir = os.path.join(self.upload_dir, "board")
+        made = os.path.getmtime(os.path.join(board_dir, pic["url"].rsplit("/", 1)[1]))
+        self.assertEqual(self.picture()["url"], pic["url"])
+        self.assertEqual(os.path.getmtime(os.path.join(board_dir, pic["url"].rsplit("/", 1)[1])), made)
+        # Moving, recoloring or removing a hold gives a new one.
+        urls = {pic["url"]}
+        self.client.put("/api/holds/%d" % hold["id"], data={"x": x + 1, "y": y},
+                        content_type="multipart/form-data")
+        urls.add(self.picture()["url"])
+        self.client.put("/api/holds/color", json={"hold_ids": [hold["id"]], "color": "#1e3a8a"})
+        urls.add(self.picture()["url"])
+        self.client.delete("/api/holds/%d" % bar["id"])
+        removed = self.picture()
+        urls.add(removed["url"])
+        self.assertEqual(len(urls), 4)
+        self.assertEqual(self.picture_image(removed["url"]).getpixel(at(removed, bx, by))[3], 0)
+
+        for params in [{"ppi": 13}, {"ppi": "x"}, {"border": 0}, {"border": 17}, {"tint": 7}, {"tint": 105}]:
+            self.picture(status=400, **params)
+        # Only the newest few are kept.
+        for tint in range(0, 55, 5):
+            self.picture(tint=tint)
+        self.assertLessEqual(len([n for n in os.listdir(board_dir) if n.startswith("wall-") and n.endswith(".webp")]), 8)
+        self.client.get("/uploads/holds/board/wall-%s.webp" % ("0" * 20)).close()
+        self.assertEqual(self.client.get("/uploads/holds/board/wall-%s.webp" % ("0" * 20)).status_code, 404)
 
     # removal & legacy ------------------------------------------------------
 
@@ -408,6 +605,44 @@ class MigrationTest(unittest.TestCase):
             self.assertEqual(len({h["name"] for h in holds}), 5)
             self.assertEqual(holds[0]["size"], 6)
             self.assertIsNotNone(holds[4]["tnut_col"])
+            conn.close()
+        finally:
+            os.remove(path)
+
+    def test_side_holds_keep_no_tnut(self):
+        """Startup gives holds without a t-nut their nearest one, but not holds
+        on a side panel; a duplicate name there is replaced with an L or R noun."""
+        fd, path = tempfile.mkstemp(suffix=".db")
+        os.close(fd)
+        try:
+            conn = db.connect(path)
+            db.init_db(conn)
+            conn.execute("INSERT INTO holds (name, x, y, removed_at) VALUES ('Lantern', -5, 40, '2026-01-01')")
+            conn.execute("INSERT INTO holds (name, x, y) VALUES ('Rocket', 125, 40)")
+            conn.commit()
+            conn.execute("DROP INDEX idx_holds_name")   # as in a database from before names were unique
+            conn.execute("INSERT INTO holds (name, x, y) VALUES ('lantern', 125, 60)")
+            conn.commit()
+            db.init_db(conn)
+            holds = conn.execute("SELECT name, tnut_col, tnut_row FROM holds ORDER BY id").fetchall()
+            self.assertEqual([(h["tnut_col"], h["tnut_row"]) for h in holds], [(None, None)] * 3)
+            self.assertEqual([h["name"] for h in holds[1:]], ["Rocket", "lantern"])   # on the wall: keeps it
+            self.assertTrue(holds[0]["name"].startswith("L") and holds[0]["name"] != "Lantern")
+            conn.close()
+        finally:
+            os.remove(path)
+
+    def test_ceiling_holds_keep_no_tnut(self):
+        fd, path = tempfile.mkstemp(suffix=".db")
+        os.close(fd)
+        try:
+            conn = db.connect(path)
+            db.init_db(conn)
+            conn.execute("INSERT INTO holds (name, x, y) VALUES ('Fern', ?, -10)", (geometry.tnut_xy(5, 0)[0],))
+            conn.commit()
+            db.init_db(conn)
+            hold = conn.execute("SELECT tnut_col, tnut_row FROM holds").fetchone()
+            self.assertEqual((hold["tnut_col"], hold["tnut_row"]), (None, None))
             conn.close()
         finally:
             os.remove(path)

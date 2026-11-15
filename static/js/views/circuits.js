@@ -1,4 +1,4 @@
-import { GRADES, append, cap, confirmDialog, gradePips, h, icon, promptDialog, trackListScroll } from '../ui.js';
+import { GRADES, append, confirmDialog, gradeLabel, gradePips, h, icon, promptDialog, sentMark, trackListScroll } from '../ui.js';
 
 // Circuits: named, ordered playlists of climbs, shared by everyone.
 export const NAME_MAX = 80;
@@ -13,7 +13,7 @@ function gradeRange(grades) {
   const levels = grades.map((g) => GRADES.indexOf(g));
   const lo = GRADES[Math.min(...levels)];
   const hi = GRADES[Math.max(...levels)];
-  return lo === hi ? cap(lo) : `${cap(lo)}–${cap(hi)}`;
+  return lo === hi ? gradeLabel(lo) : `${gradeLabel(lo)}–${gradeLabel(hi)}`;
 }
 
 function metaLine(circuit) {
@@ -31,10 +31,6 @@ function progress(circuit, me) {
       'aria-valuemin': 0, 'aria-valuemax': total, 'aria-valuenow': sent,
     }, h('span', { class: 'progress-fill', style: `width:${(100 * sent) / total}%` })),
     h('span', { class: 'progress-label' }, sent === total ? `You've sent all ${total}` : `You've sent ${sent} of ${total}`));
-}
-
-function sentCheck(size) {
-  return h('span', { class: 'sent-check', title: 'You have sent this' }, icon('check', { size, label: 'Sent' }));
 }
 
 function impossibleTag() {
@@ -79,7 +75,7 @@ export async function render(root, ctx) {
       h('button', { type: 'button', class: 'route-main', onClick: () => ctx.go(`#/circuit/${c.id}`) },
         h('div', { class: 'route-title' },
           h('span', { class: 'route-name' }, c.name),
-          c.route_count > 0 && c.sent_count === c.route_count && state.me && sentCheck(15)),
+          c.route_count > 0 && c.sent_count === c.route_count && state.me && sentMark(15)),
         h('div', { class: 'route-meta' }, metaLine(c)),
         progress(c, state.me)),
       impossible > 0 && h('div', { class: 'family-warning' }, icon('alert', { size: 14 }),
@@ -189,7 +185,7 @@ export async function renderDetail(root, ctx, { circuitId, adding = false }) {
         onClick: () => ctx.go(`#/route/${route.id}?circuit=${circuit.id}`), ...previewOn(route),
       },
       h('span', { class: 'route-name' }, label),
-      route.sent_by_me && sentCheck(14),
+      route.sent_by_me && sentMark(14),
       !route.possible && impossibleTag(),
       gradePips(route.grade, { label: false })),
       h('div', { class: 'circuit-row-actions' },
@@ -205,7 +201,7 @@ export async function renderDetail(root, ctx, { circuitId, adding = false }) {
     return h('div', { class: `pick-row${route.possible ? '' : ' impossible'}`, dataset: { routeId: route.id }, title: removedTitle(route), ...previewOn(route) },
       gradePips(route.grade, { label: false }),
       h('span', { class: 'route-name' }, route.display_name),
-      route.sent_by_me && sentCheck(14),
+      route.sent_by_me && sentMark(14),
       !route.possible && impossibleTag(),
       h('button', {
         type: 'button', class: `btn btn-small pick-toggle${added ? ' added' : ''}`, 'aria-pressed': String(added),

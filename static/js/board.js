@@ -1,11 +1,18 @@
 // SVG rendering of the wall. Units are inches, straight from /api/board.
 
+import { api } from './api.js';
 import { ROLES, h, icon, svg } from './ui.js';
 
 const MARGIN = 4.5;     // room around the wall for the grid labels
 // The closest view: 6× (about 7 columns) with a mouse, 2.5× on touch screens.
 const TOUCH_SCREEN = window.matchMedia('(pointer: coarse)');
 const maxZoom = () => (TOUCH_SCREEN.matches ? 2.5 : 6);
+// Touch screens draw the holds from ready-made images (app.py board_variant)
+// instead of SVG filters, which phones redraw slowly whenever the wall
+// changes: one image per hold with its white border (so it widens as you
+// zoom) and its color at the slider's opacity baked in. Their black shapes
+// find the bolt holes they cover, instead of a mask.
+const LIGHT = TOUCH_SCREEN.matches;
 const ZOOM_STEP = 1.6;  // per zoom button / key press
 const SETTLE_DELAY = 150;  // ms after the last wheel zoom before the wall is drawn again
 // A quick pan glides on: its speed over the last GLIDE_WINDOW ms (if the finger
@@ -35,6 +42,10 @@ const RING_BANDS = {
   foot: [1, 1.5],
   finish: [1, 2, 1, 1.5],
 };
+// On phones, where the board is small, every role gets the same single thin
+// ring instead (and the key in app.css matches).
+const PHONE = window.matchMedia('(max-width: 900px)');
+const PHONE_RING_BANDS = [1, 1];
 
 // Outlines for picked and hovered image holds: [color, opacity].
 const OUTLINES = {
@@ -60,7 +71,7 @@ export const boardImage = (hold) => hold.board_url || hold.image_url;
 // the screen's short side.
 export function imagePpi(spec) {
   const shortSide = Math.min(screen.width, screen.height);
-  return Math.ceil((shortSide * (window.devicePixelRatio || 1) * maxZoom()) / (spec.width + 2 * MARGIN));
+  return Math.ceil((shortSide * (window.devicePixelRatio || 1) * maxZoom()) / (spec.max_x - spec.min_x + 2 * MARGIN));
 }
 
 // Every hold's color shows at one shared opacity, set by the slider
@@ -160,6 +171,10 @@ function outlineFilter(name, [color, opacity]) {
 // Wraps a hold's image in the thin white border (#hold-border, made in createBoard).
 const bordered = (el) => svg('g', { class: 'hold-look', filter: 'url(#hold-border)' }, el);
 
+// A LIGHT hold's ready-made image: `suffix` is s, or o<border px> and/or
+// t<rrggbb><opacity %>.
+const variantUrl = (hold, suffix) => hold.board_url.replace(/\.png$/, `-${suffix}.png`);
+
 // Grid lines over a volume show at this fraction of their normal strength.
 const GRID_ON_VOLUME = 0.5;
 
@@ -188,6 +203,21 @@ const GRAIN_TILE = `data:image/svg+xml,${encodeURIComponent(
   + "<rect width='600' height='150' filter='url(#g)'/></svg>",
 )}`;
 
+// The wall's panels: the main panel, the footboard below it, the two side
+// panels beside it and the ceiling above it (these three have no t-nuts), each
+// with class `cls` if given.
+function panelRects(spec, cls) {
+  const { width: W, height: H, foot, sides, ceiling } = spec;
+  const rect = (kind, x, y, width, height) => svg('rect', { class: cls && [cls, kind].filter(Boolean).join(' '), x, y, width, height, rx: 0.75 });
+  return [
+    rect(null, 0, 0, W, H),
+    rect('footboard', 0, foot.top, W, foot.height),
+    rect('side-panel', sides.left_x, sides.top, sides.width, sides.height),
+    rect('side-panel', sides.right_x, sides.top, sides.width, sides.height),
+    rect('ceiling', 0, ceiling.top, W, ceiling.height),
+  ];
+}
+
 // Materials: the wood grain, and resin-like placeholder holds with a soft
 // shadow.
 function materialDefs(spec) {
@@ -196,9 +226,7 @@ function materialDefs(spec) {
   return [
     svg('pattern', { id: 'wood', patternUnits: 'userSpaceOnUse', width: 60, height: 15 },
       svg('image', { href: GRAIN_TILE, width: 60, height: 15, preserveAspectRatio: 'none' })),
-    svg('clipPath', { id: 'wall-clip' },
-      svg('rect', { x: 0, y: 0, width: spec.width, height: spec.height, rx: 0.75 }),
-      svg('rect', { x: 0, y: spec.foot.top, width: spec.width, height: spec.foot.height, rx: 0.75 })),
+    svg('clipPath', { id: 'wall-clip' }, panelRects(spec)),
     radial('hold-resin', [[0, 'var(--hold-hi)'], [0.55, 'var(--hold)'], [1, 'var(--hold-lo)']]),
     radial('hold-resin-on', [[0, '#ffffff'], [0.6, 'var(--hold-on)'], [1, 'var(--hold-on-lo)']]),
     svg('filter', { id: 'hold-shadow', x: '-60%', y: '-60%', width: '220%', height: '220%' },
@@ -208,15 +236,29 @@ function materialDefs(spec) {
 
 // `zoomHost` is where the zoom control goes (off the board); defaults to `container`.
 export function createBoard(container, spec, holds, { onHoldClick, onHoldHover, onWallPointer, zoomHost } = {}) {
-  const { width: W, height: H, foot } = spec;
-  const viewW = W + 2 * MARGIN;
-  const viewH = spec.total_height + 2 * MARGIN;
+  const { width: W, height: H, foot, ceiling } = spec;
+  // The drawing reaches past the side panels and above the ceiling, with room for the labels.
+  const minX = spec.min_x - MARGIN;
+  const minY = spec.min_y - MARGIN;
+  const viewW = spec.max_x - spec.min_x + 2 * MARGIN;
+  const viewH = spec.total_height - spec.min_y + 2 * MARGIN;
   const root = svg('svg', {
     class: 'board',
-    viewBox: `${-MARGIN} ${-MARGIN} ${viewW} ${viewH}`,
+    viewBox: `${minX} ${minY} ${viewW} ${viewH}`,
     role: 'img',
-    'aria-label': `Climbing wall: main panel with ${spec.cols} by ${spec.rows} t-nuts, footboard with ${foot.cols} by ${foot.rows}`,
+    'aria-label': `Climbing wall: main panel with ${spec.cols} by ${spec.rows} t-nuts, footboard with ${foot.cols} by ${foot.rows}, a side panel either side and a ceiling above, with none`,
   });
+
+  // LIGHT: the board in three layers, moved alike by the zoom: the wall
+  // (`wallLayer`), every hold on it as one picture the server draws
+  // (refreshPicture), and `root` over them, with the holds that need to be
+  // drawn one by one (on the problem, picked; all of them while the picture
+  // can't be used) and everything that changes. Fading the holds off a
+  // problem fades the picture, which phones do without drawing anything again.
+  const wallLayer = LIGHT ? svg('svg', { class: 'board board-wall', viewBox: `${minX} ${minY} ${viewW} ${viewH}`, 'aria-hidden': 'true' }) : null;
+  let pictureImg = LIGHT ? h('img', { alt: '', draggable: 'false' }) : null;
+  const picture = LIGHT ? h('div', { class: 'holds-picture', hidden: true }, pictureImg) : null;
+  const layers = [wallLayer, picture, root].filter(Boolean);
 
   // The grid is drawn twice: at full strength everywhere except volumes (an
   // all-or-nothing mask), and dimmed inside volumes (a clip at GRID_ON_VOLUME
@@ -226,16 +268,19 @@ export function createBoard(container, spec, holds, { onHoldClick, onHoldHover, 
   const maskVolumes = svg('g');
   const clipVolumes = svg('clipPath', { id: 'volume-clip' });
   const defs = svg('defs', {}, Object.entries(OUTLINES).map(([name, c]) => outlineFilter(name, c)), volumeDefs(), materialDefs(spec),
-    svg('mask', { id: 'grid-mask', maskUnits: 'userSpaceOnUse', x: -MARGIN, y: -MARGIN, width: viewW, height: viewH },
-      svg('rect', { x: -MARGIN, y: -MARGIN, width: viewW, height: viewH, fill: '#fff' }), maskVolumes),
+    svg('mask', { id: 'grid-mask', maskUnits: 'userSpaceOnUse', x: minX, y: minY, width: viewW, height: viewH },
+      svg('rect', { x: minX, y: minY, width: viewW, height: viewH, fill: '#fff' }), maskVolumes),
     clipVolumes);
   const tintDefs = svg('defs');
   const heatDefs = svg('defs');   // one heatFilter per usage color (setHeat)
 
   const footBottom = foot.top + foot.height;
+  const ceilingBottom = ceiling.top + ceiling.height;
   function gridLines(attrs) {
     const g = svg('g', attrs);
     spec.col_x.forEach((x) => g.append(svg('line', { x1: x, y1: 0, x2: x, y2: H })));
+    // The columns carry on across the ceiling (which has no rows or holes).
+    spec.col_x.forEach((x) => g.append(svg('line', { x1: x, y1: ceiling.top, x2: x, y2: ceilingBottom })));
     spec.row_y.forEach((y) => g.append(svg('line', { x1: 0, y1: y, x2: W, y2: y })));
     // Footboard: its own grid, confined to the footboard.
     foot.col_x.forEach((x) => g.append(svg('line', { x1: x, y1: foot.top, x2: x, y2: footBottom })));
@@ -252,11 +297,11 @@ export function createBoard(container, spec, holds, { onHoldClick, onHoldHover, 
   // hold on the wall, even one drawn faded: `holeCovers` holds their black
   // silhouettes, kept in step with the holds by setHolds() and paint().
   const hole = (x, y) => `M${x - HOLE_R},${y}a${HOLE_R},${HOLE_R} 0 1,0 ${2 * HOLE_R},0a${HOLE_R},${HOLE_R} 0 1,0 ${-2 * HOLE_R},0`;
-  const holePath = [];
+  const holeSpots = [];
   spec.col_x.forEach((x, c) => spec.row_y.forEach((y, r) => {
-    if ((c + r) % 2 === 0) holePath.push(hole(x, y));
+    if ((c + r) % 2 === 0) holeSpots.push([x, y]);
   }));
-  foot.col_x.forEach((x) => foot.row_y.forEach((y) => holePath.push(hole(x, y))));
+  foot.col_x.forEach((x) => foot.row_y.forEach((y) => holeSpots.push([x, y])));
   const holeCovers = svg('g');
   // The white border around every hold: the shape grown by a ring, kept to the
   // outside of the hold. Browsers grow a shape only by whole screen pixels, so
@@ -272,17 +317,13 @@ export function createBoard(container, spec, holds, { onHoldClick, onHoldHover, 
   // outer edge. sizeOutlines() keeps every band a fixed width on screen. The
   // region is generous, as small holds are only a few pixels across when the
   // whole wall is in view. The color comes from app.css through `style`.
-  const ringGrows = [];   // per role: [dilation, CSS pixels out from the hold's edge] for each band
+  const ringGrows = [];   // per role: [role, a dilation for each band's outer edge]
   function ringFilter(role) {
-    let px = 0;
-    const grows = RING_BANDS[role].map((band, i) => {
-      px += band;
-      return [svg('feMorphology', { in: 'SourceAlpha', operator: 'dilate', radius: 0.1, result: `edge${i}` }), px];
-    });
-    ringGrows.push(grows);
+    const grows = RING_BANDS[role].map((_, i) => svg('feMorphology', { in: 'SourceAlpha', operator: 'dilate', radius: 0.1, result: `edge${i}` }));
+    ringGrows.push([role, grows]);
     const ringBands = grows.map((_, i) => i).filter((i) => i % 2 === 1);   // the gaps are the others
     return svg('filter', { id: `ring-${role}`, x: '-200%', y: '-200%', width: '500%', height: '500%', 'color-interpolation-filters': 'sRGB' },
-      grows.map(([grow]) => grow),
+      grows,
       svg('feFlood', { 'flood-color': '#0b0b0c', 'flood-opacity': 0.7 }),
       svg('feComposite', { in2: `edge${grows.length - 2}`, operator: 'in', result: 'gap-fill' }),
       ringBands.map((i) => [
@@ -306,34 +347,39 @@ export function createBoard(container, spec, holds, { onHoldClick, onHoldHover, 
     ...ROLES.map(ringFilter),
     svg('filter', { id: 'silhouette', 'color-interpolation-filters': 'sRGB' },
       svg('feColorMatrix', { values: '0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 1 0' })),
-    svg('mask', { id: 'hole-mask', maskUnits: 'userSpaceOnUse', x: -MARGIN, y: -MARGIN, width: viewW, height: viewH },
-      svg('rect', { x: -MARGIN, y: -MARGIN, width: viewW, height: viewH, fill: '#fff' }), holeCovers));
-  const holes = svg('g', { class: 'wall-holes', mask: 'url(#grid-mask)' },
-    svg('path', { d: holePath.join(''), mask: 'url(#hole-mask)' }));
+    svg('mask', { id: 'hole-mask', maskUnits: 'userSpaceOnUse', x: minX, y: minY, width: viewW, height: viewH },
+      svg('rect', { x: minX, y: minY, width: viewW, height: viewH, fill: '#fff' }), holeCovers));
+  // LIGHT: no hole mask, which phones redraw slowly (coverHoles() leaves the
+  // covered holes out instead).
+  const holesPath = svg('path', { d: holeSpots.map(([x, y]) => hole(x, y)).join(''), mask: LIGHT ? null : 'url(#hole-mask)' });
+  const holes = svg('g', { class: 'wall-holes', mask: 'url(#grid-mask)' }, holesPath);
 
   // Label elements are kept per panel and index so the nearest row and
   // column can be highlighted while a hold is being placed.
   const labels = svg('g', { class: 'labels' });
   const colLabelEls = { main: [], foot: [] };
   const rowLabelEls = { main: [], foot: [] };
-  const rowLabels = (panel, ys, texts) => ys.forEach((y, i) => {
+  // Row numbers sit just outside the panels at their height: past the side
+  // panels for the main panel's rows, beside the footboard for its own.
+  const rowLabels = (panel, ys, texts, [left, right]) => ys.forEach((y, i) => {
     rowLabelEls[panel][i] = [
-      svg('text', { x: -1.2, y, 'text-anchor': 'end', 'dominant-baseline': 'central' }, texts[i]),
-      svg('text', { x: W + 1.2, y, 'text-anchor': 'start', 'dominant-baseline': 'central' }, texts[i]),
+      svg('text', { x: left - 1.2, y, 'text-anchor': 'end', 'dominant-baseline': 'central' }, texts[i]),
+      svg('text', { x: right + 1.2, y, 'text-anchor': 'start', 'dominant-baseline': 'central' }, texts[i]),
     ];
     labels.append(...rowLabelEls[panel][i]);
   });
+  // The column letters go above the ceiling, which the columns cross.
   spec.col_x.forEach((x, i) => {
-    colLabelEls.main[i] = [svg('text', { x, y: -1.5, 'text-anchor': 'middle' }, spec.col_labels[i])];
+    colLabelEls.main[i] = [svg('text', { x, y: ceiling.top - 1.5, 'text-anchor': 'middle' }, spec.col_labels[i])];
     labels.append(...colLabelEls.main[i]);
   });
-  rowLabels('main', spec.row_y, spec.row_labels);
+  rowLabels('main', spec.row_y, spec.row_labels, [spec.min_x, spec.max_x]);
   // The main panel sits above the footboard, so its column letters go underneath.
   foot.col_x.forEach((x, i) => {
     colLabelEls.foot[i] = [svg('text', { x, y: footBottom + 1.1, 'text-anchor': 'middle', 'dominant-baseline': 'hanging' }, foot.col_labels[i])];
     labels.append(...colLabelEls.foot[i]);
   });
-  rowLabels('foot', foot.row_y, foot.row_labels);
+  rowLabels('foot', foot.row_y, foot.row_labels, [0, W]);
 
   // While placing a hold: soft guide lines along the nearest column and row (under the holds).
   const nearGuides = svg('g', { class: 'near-guides' });
@@ -353,21 +399,22 @@ export function createBoard(container, spec, holds, { onHoldClick, onHoldHover, 
   const edgeMaskLines = svg('g');   // every volume border, in black
   const faceClips = svg('g');       // a clipPath per volume with faces
   defs.append(
-    svg('mask', { id: 'edge-mask', maskUnits: 'userSpaceOnUse', x: -MARGIN, y: -MARGIN, width: viewW, height: viewH },
-      svg('rect', { x: -MARGIN, y: -MARGIN, width: viewW, height: viewH, fill: '#fff' }), edgeMaskLines),
+    svg('mask', { id: 'edge-mask', maskUnits: 'userSpaceOnUse', x: minX, y: minY, width: viewW, height: viewH },
+      svg('rect', { x: minX, y: minY, width: viewW, height: viewH, fill: '#fff' }), edgeMaskLines),
     faceClips);
   const holdLayer = svg('g', { class: 'holds' });
   const draftLayer = svg('g', { class: 'draft-layer' });
   const volumeDraftLayer = svg('g', { class: 'volume-draft-layer' });
-  root.append(defs, tintDefs, heatDefs,
-    svg('rect', { class: 'wall', x: 0, y: 0, width: W, height: H, rx: 0.75 }),
-    svg('rect', { class: 'wall footboard', x: 0, y: foot.top, width: W, height: foot.height, rx: 0.75 }),
+  const wallParts = [
+    ...panelRects(spec, 'wall'),
     svg('g', { class: 'wall-grain', 'clip-path': 'url(#wall-clip)' },
-      svg('rect', { x: 0, y: 0, width: W, height: spec.total_height, fill: 'url(#wood)' })),
+      svg('rect', { x: spec.min_x, y: spec.min_y, width: spec.max_x - spec.min_x, height: spec.total_height - spec.min_y, fill: 'url(#wood)' })),
     volumeLayer,
     grid, gridOnVolumes, holes, volumeFaces, volumeEdges, nearGuides,
-    labels, holdLayer, draftLayer, volumeDraftLayer);
-  container.replaceChildren(root);
+    labels];
+  if (LIGHT) wallLayer.append(...wallParts);
+  root.append(defs, tintDefs, heatDefs, ...(LIGHT ? [] : wallParts), holdLayer, draftLayer, volumeDraftLayer);
+  container.replaceChildren(...layers);
   container.parentElement.style.setProperty('--board-ratio', viewW / viewH);
 
   const nodes = new Map();
@@ -386,12 +433,70 @@ export function createBoard(container, spec, holds, { onHoldClick, onHoldHover, 
   let lit = null;           // ids of the holds kept bright while every other is dimmed (setLit), or null
   let heat = null;          // hold id -> usage color, while the Stats tab shows them (setHeat)
   let heatIds = new Map();  // usage color -> its filter's id
+  const looks = new Map();  // LIGHT holds: id -> their images ({ image, rim }) and looks (lightLooks)
+
+  // LIGHT: a hold's two looks, plain and bordered, both with its color baked
+  // in at the slider's opacity (to the nearest 5%, so they're shared). The
+  // border is BORDER_PX wide on screen at 1× (the board copy is drawn `px`
+  // pixels across the hold's size).
+  const inchesPerPx = viewW / (container.getBoundingClientRect().width || 360);
+  function lightLooks(hold) {
+    const px = Number(/-(\d+)\.png$/.exec(hold.board_url)[1]);
+    const b = Math.min(24, Math.max(1, Math.round((BORDER_PX * inchesPerPx * px) / hold.size)));
+    const percent = Math.round(tintOpacity * 20) * 5;
+    const tint = hold.color && percent ? `t${hold.color.slice(1)}${percent}` : '';
+    return {
+      plain: { href: tint ? variantUrl(hold, tint) : hold.board_url, s: hold.size },
+      bordered: { href: variantUrl(hold, `o${b}${tint}`), s: (hold.size * (px + 2 * b)) / px },
+      // Under the Stats tab's usage colors: the untinted image (their filter
+      // colors it) over its white border, as the border filter does otherwise.
+      bare: { href: hold.board_url, s: hold.size },
+      edge: { href: variantUrl(hold, `o${b}`), s: (hold.size * (px + 2 * b)) / px },
+    };
+  }
+
+  // A new opacity (once the slider is let go) means new LIGHT images, and a
+  // new picture.
+  function retint() {
+    for (const [id, look] of looks) {
+      Object.assign(look, lightLooks(holdById.get(id)));
+      setLook(id, nodes.get(id));
+    }
+    refreshPicture();
+  }
+
+  // Shows a LIGHT hold (node `g`) with its baked border, or plain while it's
+  // on the problem, where its role ring replaces the border (as .hold-look's
+  // filter does in app.css), or bare under the Stats tab's usage colors. A
+  // hold drawn in the picture isn't drawn on its own, so its image isn't even
+  // fetched. Only the holds whose look changes are touched.
+  function setLook(id, g) {
+    const look = looks.get(id);
+    if (paintedPicture && !g.dataset.role && !g.classList.contains('picked') && !g.classList.contains('lit')) return;
+    const show = (image, { href, s }) => {
+      if (image.getAttribute('href') === href) return;
+      for (const [k, v] of Object.entries({ href, x: -s / 2, y: -s / 2, width: s, height: s })) image.setAttribute(k, v);
+    };
+    show(look.image, heat ? look.bare : g.dataset.role ? look.plain : look.bordered);
+    if (heat) show(look.rim, look.edge);
+    look.rim.style.display = heat ? '' : 'none';
+  }
 
   function holdNode(hold) {
     const classes = ['hold', hold.image_url && 'has-image', hold.removed && 'removed'].filter(Boolean).join(' ');
     const g = svg('g', { class: classes, 'data-id': hold.id, transform: `translate(${hold.x} ${hold.y})` },
       svg('title', {}, holdTitle(hold)));
-    if (hold.image_url) {
+    if (hold.image_url && LIGHT && hold.board_url) {
+      const s = hold.size;
+      const image = svg('image', { preserveAspectRatio: 'xMidYMid meet' });
+      const rim = svg('image', { preserveAspectRatio: 'xMidYMid meet' });
+      looks.set(hold.id, { ...lightLooks(hold), image, rim });
+      setLook(hold.id, g);
+      // What a tap lands on while the hold is in the picture (its art hidden).
+      g.append(svg('rect', { class: 'hit', x: -s / 2, y: -s / 2, width: s, height: s, transform: `rotate(${hold.rotation})` }),
+        svg('g', { class: 'hold-art', transform: `rotate(${hold.rotation})` }, rim, image),
+        svg('circle', { class: 'ghost-ring', r: s / 2 + 0.3 }));
+    } else if (hold.image_url) {
       const s = hold.size;
       const image = svg('image', { href: boardImage(hold), x: -s / 2, y: -s / 2, width: s, height: s, preserveAspectRatio: 'xMidYMid meet' });
       if (hold.color) {
@@ -420,6 +525,105 @@ export function createBoard(container, spec, holds, { onHoldClick, onHoldHover, 
   // The hold in black, for the hole mask.
   const holeCover = (hold) => holdShape(hold, 'url(#silhouette)');
 
+  // LIGHT: the bolt-hole path without the holes under a hold (on the wall,
+  // and not the one being moved), found by drawing the holds' black shapes
+  // small on a canvas once, rather than masking the holes on every redraw.
+  const HOLE_CANVAS_PPI = 4;
+  let coverToken = 0;
+  async function coverHoles() {
+    const token = ++coverToken;
+    const shown = [...holdById.values()].filter((hold) => looks.has(hold.id) && !hold.removed && hold.id !== hiddenId);
+    const images = await Promise.all(shown.map((hold) => new Promise((resolve) => {
+      const img = new Image();
+      img.onload = () => resolve(img);
+      img.onerror = () => resolve(null);
+      img.src = variantUrl(hold, 's');
+    })));
+    if (token !== coverToken) return;
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.ceil(viewW * HOLE_CANVAS_PPI);
+    canvas.height = Math.ceil(viewH * HOLE_CANVAS_PPI);
+    const c = canvas.getContext('2d', { willReadFrequently: true });
+    shown.forEach((hold, i) => {
+      const img = images[i];
+      if (!img) return;
+      const k = hold.size / Math.max(img.width, img.height);   // drawn to fit its size, as on the board
+      c.setTransform(HOLE_CANVAS_PPI, 0, 0, HOLE_CANVAS_PPI, -minX * HOLE_CANVAS_PPI, -minY * HOLE_CANVAS_PPI);
+      c.translate(hold.x, hold.y);
+      c.rotate((hold.rotation * Math.PI) / 180);
+      c.drawImage(img, (-img.width * k) / 2, (-img.height * k) / 2, img.width * k, img.height * k);
+    });
+    const { data } = c.getImageData(0, 0, canvas.width, canvas.height);
+    const covered = ([x, y]) => data[(Math.round((y - minY) * HOLE_CANVAS_PPI) * canvas.width + Math.round((x - minX) * HOLE_CANVAS_PPI)) * 4 + 3] > 127;
+    holesPath.setAttribute('d', holeSpots.filter((spot) => !covered(spot)).map(([x, y]) => hole(x, y)).join(''));
+  }
+
+  // LIGHT: the picture of every hold on the wall, for the holds as they are
+  // and the slider's opacity, at the pixels per inch this screen needs at its
+  // closest zoom. Until the first one arrives no hold is drawn (so the phone
+  // doesn't fetch every hold's image meanwhile); while a new one is on its way
+  // after the holds change, they're drawn one by one; one for a new opacity
+  // replaces the old when it's ready.
+  const PICTURE_PPI = [12, 16, 20];
+  let pictureState = 'loading';   // 'loading' (none yet), 'ready', 'stale' (holds changed) or 'failed'
+  let pictureCovered = null;      // indexes into holeSpots of the holes under a hold in it
+  let pictureToken = 0;
+  let paintedPicture = LIGHT;     // whether paint() last drew the holds from the picture (and will at first)
+  const usePicture = () => LIGHT && !heat && hiddenId == null && (pictureState === 'ready' || pictureState === 'loading');
+
+  async function refreshPicture() {
+    const token = ++pictureToken;
+    const need = ((window.devicePixelRatio || 1) * maxZoom()) / inchesPerPx;
+    const ppi = PICTURE_PPI.find((p) => p >= need) || PICTURE_PPI[PICTURE_PPI.length - 1];
+    try {
+      const pic = await api.holdsPicture({
+        ppi,
+        border: Math.min(16, Math.max(1, Math.round(BORDER_PX * inchesPerPx * ppi))),
+        tint: Math.round(tintOpacity * 20) * 5,
+      });
+      const img = h('img', { alt: '', draggable: 'false', src: pic.url });
+      await img.decode();
+      if (token !== pictureToken) return;
+      const pct = (v, of) => `${(v / of) * 100}%`;
+      Object.assign(img.style, { left: pct(pic.x - minX, viewW), top: pct(pic.y - minY, viewH), width: pct(pic.width, viewW), height: pct(pic.height, viewH) });
+      picture.replaceChildren(img);
+      pictureImg = img;
+      pictureCovered = new Set(pic.covered);
+      pictureState = 'ready';
+      holesFor = null;
+    } catch {
+      if (token !== pictureToken) return;
+      pictureState = 'failed';
+    }
+    paint();
+  }
+
+  // The bolt holes left out of the path: those under a hold in the picture
+  // (still right under the Stats colors), or, while the holds have changed
+  // since or one is being moved, under the holds as coverHoles() finds them.
+  let holesFor = null;
+  function updateHoles() {
+    if (!LIGHT || pictureState === 'loading') return;
+    const fromPicture = pictureState === 'ready' && hiddenId == null;
+    const key = fromPicture ? `picture ${pictureImg.src}` : `holds ${hiddenId}`;
+    if (key === holesFor) return;
+    holesFor = key;
+    if (fromPicture) holesPath.setAttribute('d', holeSpots.filter((_, i) => !pictureCovered.has(i)).map(([x, y]) => hole(x, y)).join(''));
+    else coverHoles();
+  }
+
+  // LIGHT: the wall and the picture follow `root`'s state (app.css fades the
+  // volumes and the picture from it).
+  function mirror() {
+    if (!LIGHT) return;
+    wallLayer.setAttribute('class', `${root.getAttribute('class')} board-wall`);
+    wallLayer.dataset.mode = root.dataset.mode || '';
+    picture.dataset.mode = root.dataset.mode || '';
+    picture.classList.toggle('dim', root.classList.contains('dim'));
+    picture.classList.toggle('instant', root.classList.contains('instant'));
+    picture.hidden = !(paintedPicture && pictureState === 'ready');
+  }
+
   function ringFor(id) {
     if (!rings.has(id)) rings.set(id, svg('g', { class: 'role-ring' }, holdShape(holdById.get(id))));
     return rings.get(id);
@@ -428,9 +632,15 @@ export function createBoard(container, spec, holds, { onHoldClick, onHoldHover, 
   function paint() {
     const active = preview || roles;
     root.classList.toggle('dim', !!lit || (active.size > 0 && (preview ? true : dimOthers)));
+    const pictureNow = usePicture();
+    const pictureChanged = pictureNow !== paintedPicture;
+    paintedPicture = pictureNow;
+    root.classList.toggle('picture', pictureNow);
     const unlit = (role) => !!spotlit && !!role && role !== spotlit;
     for (const [id, g] of nodes) {
       const role = active.get(id);
+      const lookChanged = pictureChanged || g.dataset.role !== role || g.classList.contains('picked') !== picked.has(id)
+        || g.classList.contains('lit') !== (!!lit && lit.has(id));
       if (g.dataset.role !== role) {
         if (role) g.dataset.role = role;
         else delete g.dataset.role;
@@ -439,6 +649,7 @@ export function createBoard(container, spec, holds, { onHoldClick, onHoldHover, 
       g.classList.toggle('lit', !!lit && lit.has(id));
       g.classList.toggle('picked', picked.has(id));
       g.classList.toggle('editing', id === hiddenId);
+      if (lookChanged && looks.has(id)) setLook(id, g);
     }
     const shownRings = [...active].filter(([id]) => holdById.has(id) && id !== hiddenId).map(([id, role]) => {
       const ring = ringFor(id);
@@ -476,10 +687,12 @@ export function createBoard(container, spec, holds, { onHoldClick, onHoldHover, 
       else holdLayer.insertBefore(g, at);
     }
     // The hold being moved uncovers its old hole.
+    updateHoles();
     for (const [id, cover] of covers) {
       const display = id === hiddenId ? 'none' : '';
       if (cover.style.display !== display) cover.style.display = display;
     }
+    mirror();
   }
 
   // Paints without the holds' fades (app.css), for a new page or climb: a
@@ -489,12 +702,14 @@ export function createBoard(container, spec, holds, { onHoldClick, onHoldHover, 
     paint();
     root.getBoundingClientRect();   // apply the new look while the fades are off
     root.classList.remove('instant');
+    mirror();
   }
 
   function setHolds(list) {
     holdById = new Map(list.map((h) => [h.id, h]));
     nodes.clear();
     rings.clear();
+    looks.clear();
     tintDefs.replaceChildren();
     ringLayer.replaceChildren();
     holdLayer.replaceChildren(...list.map((hold) => {
@@ -503,9 +718,15 @@ export function createBoard(container, spec, holds, { onHoldClick, onHoldHover, 
       nodes.set(hold.id, g);
       return g;
     }), ringLayer);
-    // Removed holds are off the wall, so their holes show again.
+    // Removed holds are off the wall, so their holes show again. The picture
+    // shows the holds as they were until a new one comes.
     covers.clear();
-    holeCovers.replaceChildren(...list.filter((hold) => !hold.removed).map((hold) => {
+    if (LIGHT) {
+      holesFor = null;
+      if (pictureState !== 'loading') pictureState = 'stale';
+      refreshPicture();
+    }
+    holeCovers.replaceChildren(...list.filter((hold) => !hold.removed && !LIGHT).map((hold) => {
       const cover = holeCover(hold);
       covers.set(hold.id, cover);
       return cover;
@@ -518,7 +739,8 @@ export function createBoard(container, spec, holds, { onHoldClick, onHoldHover, 
   // The hold's name tooltip is blanked meanwhile: the Stats tab shows its own.
   function applyHeat(hold, g) {
     const color = heat && heat.get(hold.id);
-    const image = g.querySelector('image');
+    const image = looks.has(hold.id) ? looks.get(hold.id).image : g.querySelector('image');
+    if (looks.has(hold.id)) setLook(hold.id, g);
     if (image) image.style.filter = color ? `url(#${heatIds.get(color)})` : '';
     else if (color) g.style.setProperty('--heat', color);
     else g.style.removeProperty('--heat');
@@ -531,6 +753,7 @@ export function createBoard(container, spec, holds, { onHoldClick, onHoldHover, 
     heatIds = new Map([...new Set(colors ? colors.values() : [])].map((color, i) => [color, `heat-${i}`]));
     heatDefs.replaceChildren(...[...heatIds].map(([color, id]) => heatFilter(id, color)));
     root.classList.toggle('heat', !!heat);
+    if (LIGHT) paint();   // no picture under the usage colors
     for (const [id, g] of nodes) applyHeat(holdById.get(id), g);
     syncSlider();
   }
@@ -556,7 +779,7 @@ export function createBoard(container, spec, holds, { onHoldClick, onHoldHover, 
   // redraws it. While a zoom is under way the drawn wall is stretched (a little
   // soft when enlarged), and settle() draws it again once the zoom stops.
   // toWall() measures from the frame, so placement stays exact.
-  const base = { x: -MARGIN, y: -MARGIN, w: viewW, h: viewH };
+  const base = { x: minX, y: minY, w: viewW, h: viewH };
   let view = { ...base };
   let goal = view;    // where the view is heading (differs from `view` mid-animation)
   let viewAnim = 0;   // a zoom animation or glide under way
@@ -590,6 +813,9 @@ export function createBoard(container, spec, holds, { onHoldClick, onHoldHover, 
       slider().set(Number(opacityRange.value) / 100);
       opacityValue.textContent = `${opacityRange.value}%`;
     },
+    onChange: () => {
+      if (LIGHT && !heat) retint();
+    },
   });
   const opacityControl = h('label', { class: 'opacity-control' }, opacityLabel, opacityRange, opacityValue);
   function syncSlider() {
@@ -619,7 +845,9 @@ export function createBoard(container, spec, holds, { onHoldClick, onHoldHover, 
     const k = zoomLevel();
     const px = (k * frame.w) / base.w;   // screen pixels per wall inch
     const transform = `translate(${-(view.x - base.x) * px}px, ${-(view.y - base.y) * px}px) scale(${k / drawnK})`;
-    if (transform !== placed) root.style.transform = placed = transform;
+    if (transform === placed) return;
+    placed = transform;
+    for (const layer of layers) layer.style.transform = transform;
   }
 
   // Draws the wall again at the zoom it has come to. A pinch settles when its
@@ -632,8 +860,10 @@ export function createBoard(container, spec, holds, { onHoldClick, onHoldHover, 
     const k = zoomLevel();
     if (pinch || k === drawnK) return;
     drawnK = k;
-    root.style.width = root.style.height = `${k * 100}%`;
-    root.style.setProperty('--zoom', k);   // keeps grid lines hairline (app.css)
+    for (const layer of layers) {
+      layer.style.width = layer.style.height = `${k * 100}%`;
+      layer.style.setProperty('--zoom', k);   // keeps grid lines hairline (app.css)
+    }
     container.classList.toggle('zoomed', zoomed());
     sizeVertices();
     sizeOutlines();
@@ -1066,12 +1296,13 @@ export function createBoard(container, spec, holds, { onHoldClick, onHoldHover, 
   // device pixels at full strength, and the fraction left over as one more
   // pixel at that fraction of the strength (0.75 px is 1 solid + 1 half pixel
   // on a 2× screen; on a 1× screen, one pixel at 75%). The role rings' bands
-  // (RING_BANDS) are whole pixels, each at least one wide. Writing a radius
-  // makes every hold redraw, so sizes are only written when they change.
+  // (RING_BANDS, or PHONE_RING_BANDS) are whole pixels, each at least one wide.
+  // Writing a radius makes every hold redraw, so sizes are only written when
+  // they change.
   function sizeOutlines() {
     if (!frame.w) return;
     const dpr = window.devicePixelRatio || 1;
-    const key = `${frame.w} ${dpr} ${drawnK}`;
+    const key = `${frame.w} ${dpr} ${drawnK} ${PHONE.matches}`;
     if (key === outlineKey) return;
     outlineKey = key;
     const device = BORDER_PX * dpr;
@@ -1085,16 +1316,23 @@ export function createBoard(container, spec, holds, { onHoldClick, onHoldHover, 
     // Over the outer fill, the inner one tops the border up to BORDER_OPACITY.
     innerFlood.setAttribute('flood-opacity', whole ? (BORDER_OPACITY - outer) / (1 - outer) : 0);
     outerFlood.setAttribute('flood-opacity', outer);
-    for (const grows of ringGrows) {
-      let edge = 0;   // device pixels out from the hold's edge
-      for (const [grow, px] of grows) {
-        edge = Math.max(edge + 1, Math.round(px * dpr));
+    for (const [role, grows] of ringGrows) {
+      const bands = PHONE.matches ? PHONE_RING_BANDS : RING_BANDS[role];
+      let px = 0;     // CSS pixels out from the hold's edge
+      let edge = 0;   // device pixels
+      grows.forEach((grow, i) => {
+        // bands past the phone's one ring (start and finish's second) stay empty
+        if (i < bands.length) {
+          px += bands[i];
+          edge = Math.max(edge + 1, Math.round(px * dpr));
+        }
         grow.setAttribute('radius', radius(edge));
-      }
+      });
     }
   }
   sizeOutlines();
-  // The frame changes size with the page (the Climbs list pins a smaller board).
+  PHONE.addEventListener('change', sizeOutlines);
+  // The frame changes size with the page.
   new ResizeObserver(([entry]) => {
     frame.w = entry.contentRect.width;
     place();
@@ -1123,11 +1361,18 @@ export function createBoard(container, spec, holds, { onHoldClick, onHoldHover, 
   }
 
   // Highlights the column and row through the t-nut at `n` (or clears them).
+  // On the ceiling `n` is just the column the hold is under.
   function showNearest(n) {
     nearLabels.forEach((t) => t.classList.remove('near'));
     nearLabels = [];
     if (!n) {
       nearGuides.replaceChildren();
+      return;
+    }
+    if (n.ceiling) {
+      nearGuides.replaceChildren(svg('line', { class: 'near-guide', x1: n.x, y1: ceiling.top, x2: n.x, y2: ceilingBottom }));
+      nearLabels = colLabelEls.main[spec.col_x.indexOf(n.x)] || [];
+      nearLabels.forEach((t) => t.classList.add('near'));
       return;
     }
     const panel = n.y > H ? 'foot' : 'main';
@@ -1157,8 +1402,14 @@ export function createBoard(container, spec, holds, { onHoldClick, onHoldHover, 
       for (const [k, v] of Object.entries({ x: -s / 2, y: -s / 2, width: s, height: s })) image.setAttribute(k, v);
       updateTint(filter, d.color);
     }
-    tnut.setAttribute('transform', `translate(${d.nearest.x} ${d.nearest.y})`);
-    for (const [k, v] of Object.entries({ x1: d.x, y1: d.y, x2: d.nearest.x, y2: d.nearest.y })) guide.setAttribute(k, v);
+    // A side panel (`nearest` is null) and the ceiling have no t-nuts: no marker or guide.
+    const onTnut = d.nearest && !d.nearest.ceiling;
+    tnut.toggleAttribute('hidden', !onTnut);
+    guide.toggleAttribute('hidden', !onTnut);
+    if (onTnut) {
+      tnut.setAttribute('transform', `translate(${d.nearest.x} ${d.nearest.y})`);
+      for (const [k, v] of Object.entries({ x1: d.x, y1: d.y, x2: d.nearest.x, y2: d.nearest.y })) guide.setAttribute(k, v);
+    }
     reveal(d.x, d.y);
   }
 
@@ -1166,10 +1417,14 @@ export function createBoard(container, spec, holds, { onHoldClick, onHoldHover, 
   // hold to placing it); a new view starts from the whole wall (reset()).
   function setMode(mode) {
     root.dataset.mode = mode;
+    mirror();
   }
 
   return {
     setHolds,
+    // What a swipe between climbs slides (swipe.js): on touch screens just the
+    // layer with the climb's own holds, over the wall and the picture.
+    swipeLayer: LIGHT ? root : container,
     // Show a route's holds. `dim` fades every hold not on the route; `instant`
     // skips the fade (a new climb, rather than a hold painted in the editor).
     setRoute(routeHolds, { dim = true, instant = false } = {}) {

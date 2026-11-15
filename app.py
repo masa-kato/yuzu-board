@@ -1,6 +1,7 @@
 import argparse
 import datetime
 import glob
+import hashlib
 import json
 import math
 import os
@@ -8,13 +9,14 @@ import re
 import uuid
 
 from flask import Flask, abort, current_app, jsonify, request, send_from_directory
-from PIL import Image
+from PIL import Image, ImageChops
 
 import db
 import geometry
 import hold_names
 
-GRADES = ("easy", "medium", "hard", "project")
+# Easiest first (sorting by grade goes by this order).
+GRADES = ("warmup", "easy", "medium", "hard", "project")
 ROLES = ("start", "hand", "foot", "finish")
 # Sort keys for the climb list. `ascents` counts each climber once; `sends`
 # counts every send, repeats included.
@@ -36,11 +38,26 @@ STORED_PNG_RE = re.compile(r"^[0-9a-f]{32}\.png$")
 BOARD_PPI = (24, 32, 48, 64)
 BOARD_PX_STEP = 32
 BOARD_PX_MIN, BOARD_PX_MAX = 96, 2048
-BOARD_IMAGE_RE = re.compile(r"^([0-9a-f]{32})-(\d+)\.png$")
+BOARD_IMAGE_RE = re.compile(
+    r"^([0-9a-f]{32})-(\d+)(?:-(s|o\d{1,2}(?:t[0-9a-f]{6}\d{1,3})?|t[0-9a-f]{6}\d{1,3}))?\.png$")
+# Touch screens draw holds from ready-made variants of the board copy rather
+# than SVG filters, which phones redraw slowly (board.js LIGHT): `o<b>` bakes
+# in the white border, b pixels wide, and `t<rrggbb><percent>` the hold's
+# color laid over it at that opacity (`-o5t1e3a8a75`, or either alone); `-s`
+# is the hold's shape in black, for finding the bolt holes it covers.
+BOARD_BORDER_MAX = 24
+BOARD_BORDER_OPACITY = 0.9   # as BORDER_OPACITY in board.js
+# Touch screens draw every hold on the wall as one picture (wall_picture),
+# at one of PICTURE_PPI pixels per inch: sharp at their closest zoom.
+PICTURE_PPI = (12, 16, 20)
+PICTURE_BORDER_MAX = 16
+PICTURE_KEEP = 8   # pictures kept on disk; older ones are deleted
+WALL_PICTURE_RE = re.compile(r"^wall-[0-9a-f]{20}\.webp$")
 # Image files never change: a new image gets a new name.
 IMAGE_MAX_AGE = 365 * 24 * 3600
 COLOR_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
 VOLUME_COLORS = ("black", "green")
+VOLUME_PANELS = {"main", "foot"}   # not the side panels or the ceiling
 MAX_FACES = 50   # sub-polygons per volume
 CIRCUIT_NAME_MAX = 80
 
@@ -169,10 +186,10 @@ def removed_holds(conn, route_ids):
     return result
 
 
-def write_holds(conn, route_id, holds, keep=()):
-    """Replace a route's holds. Removed holds are only accepted if they were
-    already on the route (`keep`), so legacy routes stay editable but nobody
-    can set a new climb on a hold that is gone."""
+def clean_holds(conn, holds, keep=()):
+    """A climb's holds as [(hold_id, role)]. Removed holds are only accepted
+    if they were already on it (`keep`), so legacy routes stay editable but
+    nobody can set a new climb on a hold that is gone."""
     if not isinstance(holds, list):
         bad_request("holds must be a list")
     seen = set()
@@ -185,16 +202,94 @@ def write_holds(conn, route_id, holds, keep=()):
         if hold_id is None or hold_id in seen:
             continue
         seen.add(hold_id)
-        clean.append((route_id, hold_id, role))
+        clean.append((hold_id, role))
     known = {h["id"]: h for h in db.rows(conn.execute("SELECT id, name, removed_at FROM holds"))}
-    for _, hold_id, _ in clean:
+    for hold_id, _ in clean:
         hold = known.get(hold_id)
         if hold is None:
             bad_request("Route uses an unknown hold")
         if hold["removed_at"] and hold_id not in keep:
             bad_request("Hold %s has been removed from the wall" % hold["name"])
+    return clean
+
+
+def write_holds(conn, route_id, holds, keep=()):
+    """Replace a route's holds (checked as clean_holds does)."""
+    clean = clean_holds(conn, holds, keep)
     conn.execute("DELETE FROM route_holds WHERE route_id = ?", (route_id,))
-    conn.executemany("INSERT INTO route_holds (route_id, hold_id, role) VALUES (?, ?, ?)", clean)
+    conn.executemany("INSERT INTO route_holds (route_id, hold_id, role) VALUES (?, ?, ?)",
+                     [(route_id, hold_id, role) for hold_id, role in clean])
+
+
+# --------------------------------------------------------------------------
+# drafts
+
+DRAFT_SELECT = """
+    SELECT d.id, d.name, d.parent_id, d.grade, d.setter_id, d.set_date, d.notes,
+           d.saved_by, d.created_at, d.updated_at,
+           parent.name AS parent_name, setter.name AS setter_name, saver.name AS saved_by_name
+    FROM drafts d
+    LEFT JOIN routes parent ON parent.id = d.parent_id
+    LEFT JOIN climbers setter ON setter.id = d.setter_id
+    LEFT JOIN climbers saver ON saver.id = d.saved_by
+"""
+
+
+def serialize_drafts(conn, drafts):
+    """Each draft with its holds, as [{hold_id, role}]."""
+    by_id = {d["id"]: dict(d, holds=[]) for d in drafts}
+    if by_id:
+        for dh in conn.execute(
+            "SELECT draft_id, hold_id, role FROM draft_holds WHERE draft_id IN (%s)" % in_clause(by_id),
+            list(by_id),
+        ):
+            by_id[dh["draft_id"]]["holds"].append({"hold_id": dh["hold_id"], "role": dh["role"]})
+    return list(by_id.values())
+
+
+def get_draft_or_404(conn, draft_id):
+    draft = db.row(conn.execute(DRAFT_SELECT + " WHERE d.id = ?", (draft_id,)))
+    if draft is None:
+        not_found("Draft not found")
+    return serialize_drafts(conn, [draft])[0]
+
+
+def draft_fields(conn, data):
+    """A draft's fields from the Set boulder form. Unlike a route, its name
+    and set date may still be blank."""
+    if data.get("grade") not in GRADES:
+        bad_request("Grade must be one of %s" % ", ".join(GRADES))
+    parent_id = optional_int(data.get("parent_id"))
+    if parent_id is not None:
+        parent = get_route_or_404(conn, parent_id)
+        # Variations always hang off the base problem.
+        parent_id = parent["parent_id"] or parent["id"]
+    return {
+        "name": (data.get("name") or "").strip(),
+        "parent_id": parent_id,
+        "grade": data["grade"],
+        "setter_id": require_climber(conn, optional_int(data.get("setter_id")), "setter_id"),
+        "set_date": parse_date(data["set_date"], "Set date") if data.get("set_date") else None,
+        "notes": (data.get("notes") or "").strip(),
+        "saved_by": require_climber(conn, optional_int(data.get("saved_by")), "saved_by"),
+    }
+
+
+def write_draft_holds(conn, draft_id, holds, keep=()):
+    clean = clean_holds(conn, holds, keep)
+    conn.execute("DELETE FROM draft_holds WHERE draft_id = ?", (draft_id,))
+    conn.executemany("INSERT INTO draft_holds (draft_id, hold_id, role) VALUES (?, ?, ?)",
+                     [(draft_id, hold_id, role) for hold_id, role in clean])
+
+
+def insert_draft(conn, fields, holds, keep=()):
+    cols = list(fields)
+    cur = conn.execute(
+        "INSERT INTO drafts (%s) VALUES (%s)" % (",".join(cols), in_clause(cols)),
+        [fields[c] for c in cols],
+    )
+    write_draft_holds(conn, cur.lastrowid, holds, keep)
+    return cur.lastrowid
 
 
 # --------------------------------------------------------------------------
@@ -205,16 +300,21 @@ HOLD_SELECT = """SELECT id, name, x, y, tnut_col, tnut_row, image, size, rotatio
 
 
 def serialize_hold(h, ppi=BOARD_PPI[-1]):
-    tx, ty = geometry.tnut_xy(h["tnut_col"], h["tnut_row"])
+    # A hold on a side panel or the ceiling has no t-nut, so no distance from one.
+    offset = None
+    if not geometry.tnut_free(h["x"], h["y"]):
+        tx, ty = geometry.tnut_xy(h["tnut_col"], h["tnut_row"])
+        offset = round(math.hypot(h["x"] - tx, h["y"] - ty), 2)
     return {
         "id": h["id"],
         "name": h["name"],
         "x": h["x"],
         "y": h["y"],
+        "panel": geometry.panel_of(h["x"], h["y"]),
         "tnut_col": h["tnut_col"],
         "tnut_row": h["tnut_row"],
-        "grid": geometry.tnut_label(h["tnut_col"], h["tnut_row"]),
-        "offset": round(math.hypot(h["x"] - tx, h["y"] - ty), 2),
+        "grid": geometry.hold_grid(h["x"], h["y"], h["tnut_col"], h["tnut_row"]),
+        "offset": offset,
         "image_url": "/uploads/holds/%s" % h["image"] if h["image"] else None,
         "board_url": board_url(h["image"], h["size"], ppi),
         "size": h["size"],
@@ -259,9 +359,9 @@ def hold_fields(conn, form, existing=None):
     if existing is None and ("x" not in form or "y" not in form):
         bad_request("x and y are required")
     if "x" in form:
-        values["x"] = parse_float(form["x"], "x", 0, geometry.WIDTH)
+        values["x"] = parse_float(form["x"], "x", geometry.MIN_X, geometry.MAX_X)
     if "y" in form:
-        values["y"] = parse_float(form["y"], "y", 0, geometry.TOTAL_HEIGHT)
+        values["y"] = parse_float(form["y"], "y", geometry.MIN_Y, geometry.TOTAL_HEIGHT)
     if "size" in form:
         values["size"] = parse_float(form["size"], "Size", 0.5, 36)
     if "rotation" in form:
@@ -271,18 +371,29 @@ def hold_fields(conn, form, existing=None):
     if "color" in form:
         values["color"] = parse_color(form["color"])
 
-    if not geometry.on_panel(values["x"], values["y"]):
-        bad_request("Holds must sit on the main board or the footboard")
-    col, row, _ = geometry.nearest_tnut(values["x"], values["y"])
-    values["tnut_col"], values["tnut_row"] = col, row
-    letter = geometry.name_letter(col)
+    x, y = values["x"], values["y"]
+    panel = geometry.panel_of(x, y)
+    if panel is None:
+        bad_request("Holds must sit on the main board, the footboard, a side panel or the ceiling")
+    if panel in geometry.SIDE_LETTERS:
+        # No t-nuts on a side panel: the panel's letter instead.
+        values["tnut_col"] = values["tnut_row"] = None
+        where = "it's on the %s" % geometry.SIDE_NAMES[panel].lower()
+    elif panel == "ceiling":
+        # Nor on the ceiling, but the columns carry on across it.
+        values["tnut_col"] = values["tnut_row"] = None
+        where = "it's in column %s on the ceiling" % geometry.col_label(geometry.nearest_tnut(x, y)[0])
+    else:
+        values["tnut_col"], values["tnut_row"], _ = geometry.nearest_tnut(x, y)
+        where = "its nearest t-nut is %s" % geometry.tnut_label(values["tnut_col"], values["tnut_row"])
+    letter = geometry.hold_letter(x, y)
     taken = taken_names(conn, existing and existing["id"])
     name = (form.get("name") if "name" in form else values.get("name")) or ""
     name = " ".join(name.split())
     if not name:
         name = hold_names.suggest_name(taken, letter)
     if not hold_names.starts_with_letter(name, letter):
-        bad_request("Hold name must start with %s — its nearest t-nut is %s" % (letter, geometry.tnut_label(col, row)))
+        bad_request("Hold name must start with %s — %s" % (letter, where))
     if name.lower() in taken:
         bad_request("A removed hold is already called %s. Delete it permanently to reuse the name" % name
                     if taken[name.lower()] else "Another hold is already called %s" % name)
@@ -327,17 +438,142 @@ def board_url(image, size, ppi=BOARD_PPI[-1]):
     return "/uploads/holds/board/%s-%d.png" % (image[:-4], px)
 
 
-def make_board_image(source, target, px):
+def board_variant(im, variant, px):
+    """One of the touch screens' ready-made looks (BOARD_IMAGE_RE) of a hold
+    image. Each is exactly `px` on its longest side, as the board draws it
+    that big; one with a border is then padded by it on every side."""
+    w, h = im.size
+    scale = px / max(w, h)
+    im = im.resize((max(1, round(w * scale)), max(1, round(h * scale))), Image.Resampling.LANCZOS)
+    alpha = im.getchannel("A")
+    if variant == "s":
+        return Image.merge("RGBA", (*Image.new("RGB", im.size, (0, 0, 0)).split(), alpha))
+    border, color, percent = re.fullmatch(r"(?:o(\d+))?(?:t([0-9a-f]{6})(\d+))?", variant).groups()
+    if color:
+        # The color over the hold, as the board's tint filter lays it on.
+        rgb = tuple(int(color[i:i + 2], 16) for i in (0, 2, 4))
+        im = Image.blend(im, Image.new("RGBA", im.size, rgb + (255,)), int(percent) / 100)
+        im.putalpha(alpha)
+    if not border:
+        return im
+    # The border: the shape grown by b pixels every way (the union of its copies
+    # moved to each point of a disc's rim and inside it), white, under the image.
+    b = int(border)
+    padded = Image.new("L", (im.width + 2 * b, im.height + 2 * b), 0)
+    grown = padded.copy()
+    padded.paste(alpha, (b, b))
+    for dx in range(-b, b + 1):
+        for dy in range(-b, b + 1):
+            if dx * dx + dy * dy <= b * b:
+                grown = ImageChops.lighter(grown, ImageChops.offset(padded, dx, dy))
+    out = Image.merge("RGBA", (*Image.new("RGB", grown.size, (255, 255, 255)).split(),
+                               grown.point(lambda v: round(v * BOARD_BORDER_OPACITY))))
+    out.alpha_composite(im, (b, b))
+    return out
+
+
+def make_board_image(source, target, px, variant=None):
     """Writes a copy of the PNG at `source` at most `px` on its longest side
-    (never larger than the original)."""
+    (never larger than the original), or one of its variants (board_variant)."""
     with Image.open(source) as im:
         im = im.convert("RGBA")
-        im.thumbnail((px, px), Image.Resampling.LANCZOS)
+        if variant:
+            im = board_variant(im, variant, px)
+        else:
+            im.thumbnail((px, px), Image.Resampling.LANCZOS)
         os.makedirs(os.path.dirname(target), exist_ok=True)
         # Written aside first, so a request at the same moment never gets half a file.
         partial = "%s.%s.tmp" % (target, uuid.uuid4().hex)
         im.save(partial, "PNG")
     os.replace(partial, target)
+
+
+def board_copy(upload_dir, stem, px, variant=None):
+    """The path of a hold image's board copy (or variant), made if it's not
+    there yet; None when the image itself is gone."""
+    name = "%s-%d%s.png" % (stem, px, "-" + variant if variant else "")
+    path = os.path.join(upload_dir, "board", name)
+    if not os.path.exists(path):
+        source = os.path.join(upload_dir, stem + ".png")
+        if not os.path.exists(source):
+            return None
+        make_board_image(source, path, px, variant)
+    return path
+
+
+def wall_picture(conn, upload_dir, ppi, border, tint):
+    """Every hold on the wall drawn into one picture, as touch screens show
+    them (board.js LIGHT): each at its place, size and rotation, with its
+    color laid over at `tint` percent and a white border `border` pixels
+    wide. It covers the wall from (MIN_X, MIN_Y) to (MAX_X, TOTAL_HEIGHT) at
+    `ppi` pixels per inch, stacked in id order as the board stacks them.
+    Returns its file name and the indexes into geometry.bolt_holes() of the
+    holes it covers. The name follows from the holds and the settings, so a
+    picture is drawn once and an older one is never shown by mistake."""
+    holds = db.rows(conn.execute(
+        "SELECT id, image, x, y, size, rotation, color FROM holds"
+        " WHERE removed_at IS NULL AND image IS NOT NULL ORDER BY id"))
+    holds = [h for h in holds if STORED_PNG_RE.match(h["image"])]
+    extent = (geometry.MIN_X, geometry.MIN_Y, geometry.MAX_X, geometry.TOTAL_HEIGHT)
+    key = hashlib.sha1(json.dumps([holds, ppi, border, tint, extent]).encode()).hexdigest()[:20]
+    board_dir = os.path.join(upload_dir, "board")
+    name = "wall-%s.webp" % key
+    path = os.path.join(board_dir, name)
+    covers_path = path[:-5] + ".json"
+    if os.path.exists(path) and os.path.exists(covers_path):
+        with open(covers_path) as f:
+            return name, json.load(f)
+
+    width = round((geometry.MAX_X - geometry.MIN_X) * ppi)
+    height = round((geometry.TOTAL_HEIGHT - geometry.MIN_Y) * ppi)
+    canvas = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+    for h in holds:
+        px = max(1, round(h["size"] * ppi))
+        # From a board copy at least that big, so the original is read once.
+        copy_px = min(BOARD_PX_MAX, max(BOARD_PX_MIN, math.ceil(px / BOARD_PX_STEP) * BOARD_PX_STEP))
+        copy = board_copy(upload_dir, h["image"][:-4], copy_px)
+        if copy is None:
+            continue
+        variant = "o%d" % border
+        if h["color"] and tint:
+            variant += "t%s%d" % (h["color"][1:], tint)
+        with Image.open(copy) as im:
+            look = board_variant(im.convert("RGBA"), variant, px)
+        # SVG turns a positive angle clockwise; Pillow turns it the other way.
+        look = look.rotate(-h["rotation"], resample=Image.Resampling.BICUBIC, expand=True)
+        left = round((h["x"] - geometry.MIN_X) * ppi - look.width / 2)
+        top = round((h["y"] - geometry.MIN_Y) * ppi - look.height / 2)
+        # Only the part on the picture (alpha_composite takes no negative offsets).
+        crop = (max(0, -left), max(0, -top), min(look.width, width - left), min(look.height, height - top))
+        if crop[0] < crop[2] and crop[1] < crop[3]:
+            canvas.alpha_composite(look.crop(crop), (left + crop[0], top + crop[1]))
+
+    alpha = canvas.getchannel("A")
+    covered = []
+    for i, (x, y) in enumerate(geometry.bolt_holes()):
+        px, py = round((x - geometry.MIN_X) * ppi), round((y - geometry.MIN_Y) * ppi)
+        if 0 <= px < width and 0 <= py < height and alpha.getpixel((px, py)) > 127:
+            covered.append(i)
+
+    os.makedirs(board_dir, exist_ok=True)
+    # Written aside first, so a request at the same moment never gets half a file.
+    partial = "%s.%s.tmp" % (path, uuid.uuid4().hex)
+    canvas.save(partial, "WEBP", quality=85, method=4)
+    os.replace(partial, path)
+    partial = "%s.%s.tmp" % (covers_path, uuid.uuid4().hex)
+    with open(partial, "w") as f:
+        json.dump(covered, f)
+    os.replace(partial, covers_path)
+
+    # Keep only the newest few.
+    pictures = sorted(glob.glob(os.path.join(board_dir, "wall-*.webp")), key=os.path.getmtime, reverse=True)
+    for old in pictures[PICTURE_KEEP:]:
+        for stale in (old, old[:-5] + ".json"):
+            try:
+                os.remove(stale)
+            except OSError:
+                pass
+    return name, covered
 
 
 def remove_image(filename):
@@ -469,7 +705,7 @@ def volume_points(raw):
         bad_request("A volume needs between 3 and 100 corners")
     points = parse_corners(raw)
     panels = {geometry.panel_of(x, y) for x, y in points}
-    if None in panels:
+    if not panels <= VOLUME_PANELS:
         bad_request("Every corner must be on the main board or the footboard")
     if len(panels) > 1:
         bad_request("A volume can't span the gap between the main board and the footboard")
@@ -678,19 +914,48 @@ def create_app(db_path=None, upload_dir=None):
 
     @app.get("/uploads/holds/board/<name>")
     def board_image(name):
-        """A hold image's copy for the board, made the first time it's asked for."""
+        """A hold image's copy for the board, made the first time it's asked
+        for; or a picture of the whole wall's holds (made by /api/holds/picture)."""
+        board_dir = os.path.join(app.config["UPLOAD_DIR"], "board")
+        if WALL_PICTURE_RE.match(name):
+            if not os.path.exists(os.path.join(board_dir, name)):
+                abort(404)
+            return send_from_directory(board_dir, name, max_age=IMAGE_MAX_AGE, mimetype="image/webp")
         match = BOARD_IMAGE_RE.match(name)
         px = int(match.group(2)) if match else 0
         if px % BOARD_PX_STEP or not BOARD_PX_MIN <= px <= BOARD_PX_MAX:
             abort(404)
-        upload_dir = app.config["UPLOAD_DIR"]
-        board_dir = os.path.join(upload_dir, "board")
-        if not os.path.exists(os.path.join(board_dir, name)):
-            source = os.path.join(upload_dir, match.group(1) + ".png")
-            if not os.path.exists(source):
+        variant = match.group(3)
+        if variant and variant != "s":
+            border, percent = re.fullmatch(r"(?:o(\d+))?(?:t[0-9a-f]{6}(\d+))?", variant).groups()
+            if border and not 1 <= int(border) <= BOARD_BORDER_MAX or percent and int(percent) > 100:
                 abort(404)
-            make_board_image(source, os.path.join(board_dir, name), px)
+        if board_copy(app.config["UPLOAD_DIR"], match.group(1), px, variant) is None:
+            abort(404)
         return send_from_directory(board_dir, name, max_age=IMAGE_MAX_AGE)
+
+    @app.get("/api/holds/picture")
+    def holds_picture():
+        """The picture of every hold on the wall that touch screens draw
+        (wall_picture): its URL, the wall inches it covers, and which bolt
+        holes (indexes into the board's list of them) are under a hold."""
+        args = request.args
+        ppi = optional_int(args.get("ppi"))
+        border = optional_int(args.get("border"))
+        tint = optional_int(args.get("tint"))
+        if ppi not in PICTURE_PPI:
+            bad_request("ppi must be one of %s" % ", ".join(map(str, PICTURE_PPI)))
+        if border is None or not 1 <= border <= PICTURE_BORDER_MAX:
+            bad_request("border must be 1 to %d pixels" % PICTURE_BORDER_MAX)
+        if tint is None or not 0 <= tint <= 100 or tint % 5:
+            bad_request("tint must be 0 to 100 in steps of 5")
+        name, covered = wall_picture(db.get_db(), app.config["UPLOAD_DIR"], ppi, border, tint)
+        return jsonify({
+            "url": "/uploads/holds/board/" + name,
+            "x": geometry.MIN_X, "y": geometry.MIN_Y,
+            "width": geometry.MAX_X - geometry.MIN_X, "height": geometry.TOTAL_HEIGHT - geometry.MIN_Y,
+            "covered": covered,
+        })
 
     # ---- board & holds ----------------------------------------------------
 
@@ -1022,13 +1287,16 @@ def create_app(db_path=None, upload_dir=None):
             r["removed_holds"] = removed_by_route[r["id"]]
             if r["parent_id"] is None:
                 r.update(matched=r["id"] in matched, variations=[], variation_total=0,
-                         impossible_total=0 if r["possible"] else 1, family_possible=r["possible"])
+                         impossible_total=0 if r["possible"] else 1, family_possible=r["possible"],
+                         variation_sent=False)
                 bases[r["id"]] = r
         for r in all_routes:
             if r["parent_id"] is not None and r["parent_id"] in bases:
                 base = bases[r["parent_id"]]
                 base["variation_total"] += 1
                 base["family_possible"] = base["family_possible"] or r["possible"]
+                # whether `me` has sent any variation, shown or filtered out
+                base["variation_sent"] = base["variation_sent"] or r["sent_by_me"]
                 if not r["possible"]:
                     base["impossible_total"] += 1
                 if r["id"] in matched:
@@ -1125,6 +1393,10 @@ def create_app(db_path=None, upload_dir=None):
             [fields[c] for c in cols],
         )
         write_holds(conn, cur.lastrowid, data.get("holds") or [])
+        # Publishing a draft: it goes once the climb is in (one already gone is fine).
+        draft_id = optional_int(data.get("draft_id"))
+        if draft_id is not None:
+            conn.execute("DELETE FROM drafts WHERE id = ?", (draft_id,))
         conn.commit()
         return jsonify({"id": cur.lastrowid}), 201
 
@@ -1155,6 +1427,76 @@ def create_app(db_path=None, upload_dir=None):
         conn.execute("DELETE FROM routes WHERE id = ?", (route_id,))
         conn.commit()
         return jsonify({"deleted": route_id})
+
+    @app.post("/api/routes/<int:route_id>/draft")
+    def route_to_draft(route_id):
+        """Takes a climb nobody has sent back to Drafts: the draft gets its
+        fields and holds (removed ones included), and the climb goes, so it
+        also leaves its circuits. A base problem with variations stays, as
+        they would have nothing to hang off."""
+        conn = db.get_db()
+        route = get_route_or_404(conn, route_id)
+        data = request.get_json(silent=True) or {}
+        name = route["name"]
+        if conn.execute("SELECT 1 FROM sends WHERE route_id = ?", (route_id,)).fetchone():
+            bad_request("%s has been sent, so it can't go back to drafts" % name)
+        if route["fa_date"]:
+            bad_request("%s has a first ascent, so it can't go back to drafts" % name)
+        variations = [r["name"] for r in conn.execute(
+            "SELECT name FROM routes WHERE parent_id = ? ORDER BY id", (route_id,))]
+        if variations:
+            bad_request("%s has variations (%s), so it can't go back to drafts" % (name, ", ".join(variations)))
+        if conn.execute("SELECT 1 FROM drafts WHERE parent_id = ?", (route_id,)).fetchone():
+            bad_request("%s has a draft variation, so it can't go back to drafts" % name)
+        holds = route_holds(conn, [route_id])[route_id]
+        draft_id = insert_draft(conn, draft_fields(conn, dict(route, saved_by=data.get("saved_by"))),
+                                holds, keep={h["hold_id"] for h in holds})
+        conn.execute("DELETE FROM routes WHERE id = ?", (route_id,))
+        conn.commit()
+        return jsonify(get_draft_or_404(conn, draft_id)), 201
+
+    # ---- drafts -----------------------------------------------------------
+
+    @app.get("/api/drafts")
+    def list_drafts():
+        conn = db.get_db()
+        drafts = db.rows(conn.execute(DRAFT_SELECT + " ORDER BY d.updated_at DESC, d.id DESC"))
+        return jsonify(serialize_drafts(conn, drafts))
+
+    @app.get("/api/drafts/<int:draft_id>")
+    def get_draft(draft_id):
+        return jsonify(get_draft_or_404(db.get_db(), draft_id))
+
+    @app.post("/api/drafts")
+    def create_draft():
+        conn = db.get_db()
+        data = request.get_json(silent=True) or {}
+        draft_id = insert_draft(conn, draft_fields(conn, data), data.get("holds") or [])
+        conn.commit()
+        return jsonify(get_draft_or_404(conn, draft_id)), 201
+
+    @app.put("/api/drafts/<int:draft_id>")
+    def update_draft(draft_id):
+        conn = db.get_db()
+        draft = get_draft_or_404(conn, draft_id)
+        data = request.get_json(silent=True) or {}
+        fields = draft_fields(conn, data)
+        conn.execute(
+            "UPDATE drafts SET %s, updated_at = datetime('now', 'localtime') WHERE id = ?"
+            % ", ".join("%s = ?" % c for c in fields),
+            [fields[c] for c in fields] + [draft_id],
+        )
+        write_draft_holds(conn, draft_id, data.get("holds") or [], keep={h["hold_id"] for h in draft["holds"]})
+        conn.commit()
+        return jsonify(get_draft_or_404(conn, draft_id))
+
+    @app.delete("/api/drafts/<int:draft_id>")
+    def delete_draft(draft_id):
+        conn = db.get_db()
+        get_draft_or_404(conn, draft_id)
+        conn.execute("DELETE FROM drafts WHERE id = ?", (draft_id,))
+        conn.commit()
+        return jsonify({"deleted": draft_id})
 
     # ---- sends ------------------------------------------------------------
 
