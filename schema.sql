@@ -139,3 +139,135 @@ CREATE INDEX IF NOT EXISTS idx_route_holds_hold ON route_holds(hold_id);
 CREATE INDEX IF NOT EXISTS idx_draft_holds_hold ON draft_holds(hold_id);
 CREATE INDEX IF NOT EXISTS idx_sends_route ON sends(route_id, climber_id);
 CREATE INDEX IF NOT EXISTS idx_sends_climber ON sends(climber_id, sent_date);
+
+-- App-wide values, as text: `secret_key` signs the login cookie (made on the
+-- first run); `admin_climber_id` and `admin_password_hash` are the admin's
+-- login, set with `python app.py --set-admin <name>` (auth.py).
+CREATE TABLE IF NOT EXISTS settings (
+    key    TEXT PRIMARY KEY,
+    value  TEXT NOT NULL
+);
+
+-- A climber tried a climb on a day, whether or not they sent it then. One
+-- mark per climb, climber and day: attempts aren't counted. Sends stay in
+-- `sends`; a day with either counts as a day on the wall.
+CREATE TABLE IF NOT EXISTS tries (
+    id          INTEGER PRIMARY KEY,
+    route_id    INTEGER NOT NULL REFERENCES routes(id) ON DELETE CASCADE,
+    climber_id  INTEGER NOT NULL REFERENCES climbers(id) ON DELETE CASCADE,
+    tried_date  TEXT NOT NULL,
+    note        TEXT NOT NULL DEFAULT '',
+    created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE (route_id, climber_id, tried_date)
+);
+
+-- The admin's outdoor climbing (outdoor.py). A climb is a boulder or route at
+-- a crag, `area`; its grade is free text ("V5", "6B+"). A session is a day
+-- out; each entry is a climb tried that day, sent or not, with a note on what
+-- was learned on it. No two climbs in an area share a name (ignoring case).
+-- `prior_sessions` counts the sessions on a climb before any were logged
+-- here, so an entry knows it was the climb's 5th session.
+CREATE TABLE IF NOT EXISTS outdoor_climbs (
+    id              INTEGER PRIMARY KEY,
+    name            TEXT NOT NULL,
+    area            TEXT NOT NULL DEFAULT '',
+    grade           TEXT NOT NULL DEFAULT '',
+    notes           TEXT NOT NULL DEFAULT '',
+    prior_sessions  INTEGER NOT NULL DEFAULT 0 CHECK (prior_sessions >= 0),
+    created_at      TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS outdoor_sessions (
+    id            INTEGER PRIMARY KEY,
+    session_date  TEXT NOT NULL,
+    area          TEXT NOT NULL DEFAULT '',
+    notes         TEXT NOT NULL DEFAULT '',
+    created_at    TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS outdoor_entries (
+    id          INTEGER PRIMARY KEY,
+    session_id  INTEGER NOT NULL REFERENCES outdoor_sessions(id) ON DELETE CASCADE,
+    climb_id    INTEGER NOT NULL REFERENCES outdoor_climbs(id) ON DELETE CASCADE,
+    sent        INTEGER NOT NULL DEFAULT 0 CHECK (sent IN (0, 1)),
+    note        TEXT NOT NULL DEFAULT '',
+    position    INTEGER NOT NULL DEFAULT 0,
+    UNIQUE (session_id, climb_id)
+);
+
+-- The admin's workouts (workouts.py). An exercise is measured one way, its
+-- `kind`: weight (weight × reps), bodyweight (reps, perhaps with added
+-- weight), timed (seconds, perhaps with added weight) or hang (seconds, added
+-- weight and edge depth). Its variants are the ways of doing it (Barbell and
+-- Dumbbell bench press, a hang's grips), kept under the one exercise for its
+-- history and charts. New databases start with db.DEFAULT_EXERCISES.
+CREATE TABLE IF NOT EXISTS exercises (
+    id          INTEGER PRIMARY KEY,
+    name        TEXT NOT NULL UNIQUE COLLATE NOCASE,
+    kind        TEXT NOT NULL CHECK (kind IN ('weight', 'bodyweight', 'timed', 'hang')),
+    notes       TEXT NOT NULL DEFAULT '',
+    created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS exercise_variants (
+    id           INTEGER PRIMARY KEY,
+    exercise_id  INTEGER NOT NULL REFERENCES exercises(id) ON DELETE CASCADE,
+    name         TEXT NOT NULL,
+    position     INTEGER NOT NULL DEFAULT 0
+);
+
+-- One workout a day, keyed by its date. `tiredness` is how tired the session
+-- felt overall, 1 (fresh) to 5 (wrecked). Each exercise done is a block, in
+-- `position` order, holding its sets; a set fills the columns its exercise's
+-- kind uses and leaves the rest null. Weights are in pounds; a negative one
+-- is assistance (a pulley taking weight off a hang). Exercises and variants
+-- that have been done can't be deleted.
+CREATE TABLE IF NOT EXISTS workouts (
+    id            INTEGER PRIMARY KEY,
+    workout_date  TEXT NOT NULL UNIQUE,
+    tiredness     INTEGER CHECK (tiredness BETWEEN 1 AND 5),
+    notes         TEXT NOT NULL DEFAULT '',
+    created_at    TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS workout_exercises (
+    id           INTEGER PRIMARY KEY,
+    workout_id   INTEGER NOT NULL REFERENCES workouts(id) ON DELETE CASCADE,
+    exercise_id  INTEGER NOT NULL REFERENCES exercises(id) ON DELETE RESTRICT,
+    variant_id   INTEGER REFERENCES exercise_variants(id) ON DELETE RESTRICT,
+    position     INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS workout_sets (
+    id                   INTEGER PRIMARY KEY,
+    workout_exercise_id  INTEGER NOT NULL REFERENCES workout_exercises(id) ON DELETE CASCADE,
+    position             INTEGER NOT NULL DEFAULT 0,
+    reps                 INTEGER,
+    weight               REAL,
+    seconds              REAL,
+    edge_mm              REAL
+);
+
+CREATE INDEX IF NOT EXISTS idx_tries_climber ON tries(climber_id, tried_date);
+CREATE INDEX IF NOT EXISTS idx_tries_route ON tries(route_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_outdoor_climbs_name ON outdoor_climbs(name COLLATE NOCASE, area COLLATE NOCASE);
+CREATE INDEX IF NOT EXISTS idx_outdoor_entries_climb ON outdoor_entries(climb_id);
+CREATE INDEX IF NOT EXISTS idx_outdoor_sessions_date ON outdoor_sessions(session_date);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_variants_name ON exercise_variants(exercise_id, name COLLATE NOCASE);
+CREATE INDEX IF NOT EXISTS idx_workout_exercises_exercise ON workout_exercises(exercise_id, variant_id);
+CREATE INDEX IF NOT EXISTS idx_workout_exercises_workout ON workout_exercises(workout_id);
+CREATE INDEX IF NOT EXISTS idx_workout_sets_block ON workout_sets(workout_exercise_id);
+
+-- The admin's finger health (fingers.py): a check at the start or the end of a
+-- day's session, or only at the end on a rest day. `scores` is a JSON list of
+-- 10 scores, 0 (healthy) to 10 (most painful), in fingers.FINGERS order: the
+-- left thumb, index, middle, ring and pinky, then the right hand's.
+CREATE TABLE IF NOT EXISTS finger_checks (
+    id          INTEGER PRIMARY KEY,
+    check_date  TEXT NOT NULL,
+    phase       TEXT NOT NULL CHECK (phase IN ('start', 'end')),
+    scores      TEXT NOT NULL,
+    comment     TEXT NOT NULL DEFAULT '',
+    updated_at  TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE (check_date, phase)
+);

@@ -18,8 +18,20 @@ Then open <http://localhost:5050>. The server listens on all interfaces, so phon
 
 ![The Mac runs app.py, which serves the app on port 5050; phones, tablets and laptops on the same Wi-Fi open http://<Mac's IP>:5050, and the data stays on the Mac](docs/img/network.svg)
 
-- Reset to fresh demo data: `.venv/bin/python seed.py --reset`
+- Reset to fresh demo data: `.venv/bin/python seed.py --reset` (this also clears the admin login)
 - Run the tests: `.venv/bin/python -m unittest discover tests`
+
+### The admin login
+
+One climber can be the admin, with a password. Only the admin sees the [Outdoors](#outdoors) and [Workout](#workout) tabs (and their outdoor days in the [Logbook](#logbook)), and only they can log sends and tries as themselves. Everything else stays open to everyone. Until an admin is set, nobody needs a password.
+
+```sh
+.venv/bin/python app.py --set-admin Masa    # asks for the password twice, then exits
+```
+
+The name is added as a climber if it's new. Choosing the admin in the climber menu then asks for the password, once per device: the login lasts a year. **Log out** is at the bottom of the same menu. Running `--set-admin` again changes the password and logs out every device. The password is stored hashed; the key that signs the login cookie is made on the first run and kept in the database.
+
+On your home Wi‑Fi the password travels unencrypted (plain `http://`), so reach the app from outside through something that encrypts the connection, such as Tailscale.
 
 ## The wall
 
@@ -47,7 +59,7 @@ The numbered markers in a screenshot (①, ②, …) match the numbered points t
 
 <img src="docs/img/zoom.webp" alt="The board zoomed to 3.3× on a route, with the zoom buttons below it and the name of the hold under the pointer, Vulture" width="440">
 
-- **Climbing as:** pick yourself in the top-right corner. There are no passwords. You can add new climbers from the same menu.
+- **Climbing as:** pick yourself in the top-right corner. You can add new climbers from the same menu. Only the admin needs a password (see [The admin login](#the-admin-login)); their name reads "— log in…" until they do.
 - **Zoom (every view of the board):** up to 6×, or 2.5× on phones and other touch screens. ① The **− 1× +** buttons on the board and the + / − keys zoom around the middle of the view; Ctrl + scroll or a pinch zooms where you point. Tap the level (or press 0) for the whole wall. Zoomed in, drag (or scroll) to pan; a tap still picks a hold. A quick drag keeps gliding and slows to a stop; touching the board stops it. While you pinch, the wall stretches and is drawn sharp again once your fingers lift. On phones, one finger scrolls the page as usual until you zoom in, and on a climb's page the swipe to the next climb works whenever the board isn't zoomed. Each new page starts from the whole wall.
 - ② Hovering a hold shows its name under the board.
 
@@ -78,7 +90,7 @@ The numbered markers in a screenshot (①, ②, …) match the numbered points t
 
   <img src="docs/img/rings.webp" alt="Four holds up close, one ringed for each role: start, hand, foot and finish" width="317">
 
-- ① A dropdown switches between the original problem and its variations, or adds a new one. The ones you have sent say **✓ sent**, and its label counts them.
+- ① **Variations** lists the original problem and its variations in a box of rows like the Climbs list: each with its grade and, if you have sent it, a yuzu slice; the one you're on is outlined. Tap a row to open it; **+ Add a variation** is the last row. The label counts the variations you have sent.
 - ② The hold counts under **Holds** double as a legend: tap one (say, **Foot**) to fade the route's other holds, and tap it again to show them all.
 
   <img src="docs/img/route-all.webp" alt="The route with all its holds lit" width="49%"> <img src="docs/img/route-foot.webp" alt="The same route after tapping Foot: only its three foot holds stay lit" width="49%">
@@ -86,6 +98,8 @@ The numbered markers in a screenshot (①, ②, …) match the numbered points t
 - ③ **Log send** (or **Log repeat**) takes a date and an optional comment. The first send of a route automatically records the first ascent.
 - ④ **Add to circuit** puts the climb in one or more circuits (see [Circuits](#circuits)).
 - ⑤ The Ascents list shows each climber once, with the date of their first send.
+- **Mark tried** says you tried the climb today (or on the date you pick), sent or not, with an optional note on what you learned. It's one mark a day, not a count of attempts; marking it again that day updates the note. Once marked, the button reads **✓ Tried today**, and tapping it lets you change the note or remove the mark.
+- **Your sessions** lists your tries and sends on the climb, newest first, with their notes and comments, so the beta you worked out last week is there when you come back to it.
 - **Move to drafts** (only while nobody has sent the climb) takes it back to [Drafts](#drafts) to finish setting, with its name, grade, setter, set date, notes and holds. It comes out of any circuits it was in. A problem with variations stays put, since they would have nothing to hang off.
 - **On phones** the page scrolls as on the Wall tab: the board on top, the same size as on the Climbs list, and the climb's details below it. So going between the list and a climb, or on to the next climb, changes only the climb's holds; the board keeps its size.
 - **On phones, swipe the wall** left for the next problem in the Climbs list (same filters and sort) and right for the previous one; variations are skipped. The climb's holds slide with your finger while the wall and the other holds stay put. ⑥ A **‹ Climbs · 3 of 7 ›** bar does the same with taps, and ⑦ **← All climbs** above it goes back to the filtered list. Opened from a circuit, swiping steps through the circuit instead.
@@ -93,6 +107,8 @@ The numbered markers in a screenshot (①, ②, …) match the numbered points t
 <img src="docs/img/log-send.webp" alt="The Log a send form under the route's details: climber, date and an optional comment" width="300"> <img src="docs/img/phone-route.webp" alt="A route page on a phone: swipe across the wall for the next or previous climb, or use the Climbs 4 of 9 bar under it" width="260">
 
 ### Set boulder
+
+On phones this tab reads **Set**, so all the tabs fit on one row.
 
 ![Setting a new boulder: the painted holds ringed on the wall with the others faded, and the form on the right](docs/img/set-boulder.webp)
 
@@ -123,7 +139,34 @@ Playlists of climbs to do as a set, in order. Circuits are shared: everyone sees
 
 <img src="docs/img/logbook.webp" alt="Alex's logbook: totals at the top, then sends by month, repeats with an amber border and first sends with a green one" width="360">
 
-Your sends, newest first, grouped by day under each month: every day is a dropdown with its count ("3 sends · 1 repeat"), the latest one open. Days you open or close stay that way while the app is open. The stats and toggle stay put while the log scrolls. Repeats have an amber border, first sends a green one. Sends on retired climbs get a "Legacy" tag. Each send can be edited or deleted.
+A month calendar takes the wall's place: beside the log on a computer, above it on a phone. Days you climbed are tinted yuzu, with a yuzu dot. A day's color says what kind of day it was, never how much: more sends don't make a better session. ‹ › step through the months and **Today** comes back. Tap a day to open it in the log below; the other days close. For the admin the calendar also tints outdoor days sandstone and workout days blue, each with its own dot. A day with two kinds of session, say a workout and an outdoor climb, splits into two smaller rectangles side by side, one in each color (three for all three), with a dot for each. A day with only a workout opens that workout.
+
+Below the calendar is your log, newest first, grouped by day under each month: every day is a dropdown that says what happened, without counts ("sent · repeated · tried"), the latest one open. Days you open or close stay that way while the app is open. The stats and toggle stay put while the log scrolls. Repeats have an amber border, first sends a green one, and tries a gray one, with their notes. Sends on retired climbs get a "Legacy" tag. Each send and try can be edited or deleted.
+
+**Fingers** (the admin only): score how each finger feels, from 0 (healthy) to 10 (most painful), at the **start** and **end** of a session. On a rest day log just the end. Your fingers show as ten fingertips, seen as your hands on a table: the left hand on the left, the middle fingers highest and the thumbs low and in. Tap a fingertip, then its score on the row below (on a computer, keys 0–9 do it too, and 1 then 0 quickly makes 10), and write how they feel. A new check starts from the scores of your last one (for an end check, that day's start), shown above the fingertips with its date, sorest finger and comment; your very first starts every finger at 0. A healthy finger is a quiet gray dot, and pain colors it from blue (1) to red (10), so only what hurts stands out. Under the form, **History** lists every check, newest first, as a row of its ten scores (the fingers in the order they're drawn, pinky to thumb then thumb to pinky); tap a row to open that check. On the calendar a logged day shows the fingertips on a band of their own along its bottom, under the day's colors (so a day split between kinds of session never runs behind them), by the end-of-session scores (or the start's, until the end is logged); hover them for the day's comments, and point at one fingertip for its score at the start and end. In the log, the day lists both checks with their sorest finger (point at a fingertip for its score); the pencil edits them. Nothing moves.
+
+**Outdoor climbs** (the admin only) show on their days too, logged on the [Outdoors](#outdoors) tab. Each climb from a session is one line, like a home-board send: its name, grade, which session on it this was ("V12 · Session 5"), a **Tried** tag if you didn't send it, and its note, with a sandstone border. The name opens the climb's page; the pencil opens the session.
+
+### Outdoors
+
+Only the admin sees this tab (see [The admin login](#the-admin-login)). It has no calendar; the Logbook's shows your days out.
+
+- **In progress | Sent** switch between the climbs you haven't sent yet, most recently tried first, and the ones you have, newest send first, with how many of each. An in-progress climb shows its grade, area and sessions so far ("5 sessions · last Nov 17"). A sent one gets the yuzu slice and says how long it took ("Sent Nov 14 · took 2 sessions"). Search finds climbs or areas in either list.
+- **+ Session** logs a day outside: the date, the area, notes on the day, and the climbs you tried.
+  - **Area** drops down the areas you've been, the latest first, with how many climbs you've logged in each. Pick one or type a new one.
+  - **Add a climb** drops down that area's climbs as soon as you tap it, the ones not sent yet first (sent ones carry the yuzu slice). Tap one to add it; the list stays open for the next. Typing narrows the list, then shows climbs of that name in other areas and offers it as a **New climb** in this area, with its grade (free text, such as V5 or 6B+). On a computer, arrows and Enter pick, and Esc closes.
+  - Mark each climb **Tried** or **Sent** and note what you learned on it. A known climb has an **Earlier notes** dropdown with its notes from past sessions.
+- **A climb's page** (tap it in either list) shows how many sessions you've spent on it and when you sent it, on which session. **Notes by session** lists every session on it, newest first: its date, number and area, **Sent** or **Tried**, your note on the climb, and the day's notes from that session. Tap a date to open that session to edit or delete it. **Edit** changes the climb's name, area, grade, sessions before logging here and general notes. Coming back to the list keeps your place in it.
+- **Session count:** each session on a climb is numbered by date. A climb is its name in its area, so a boulder of the same name at another crag keeps its own count. If you'd been on a climb before you started logging it here, set **Sessions before logging here** on its page and the logged ones count on from there: with 4, the first logged session is its 5th.
+
+### Workout
+
+Only the admin sees this tab (see [The admin login](#the-admin-login)). The same calendar as the Logbook sits in the wall's place, marking climbing and workout days. Tap a day to open its workout, or log one after the fact. Under it, **Workout** and **Exercises** switch between the day's workout and the exercise list.
+
+- **A day's workout:** **Add exercise** opens a popup. At the top, **Recent** has one-tap buttons for what you've done in the last two weeks. Below the search box, exercises are grouped by kind, each with a bar of buttons, one per variant (Barbell or Dumbbell bench press, a hang's grips), so one tap picks both. Each button says when you last did that variant; one already in the workout reads **✓ Added**. **+ Variant** beside an exercise's name adds a new variant to it (say, Incline bench press) and puts it in the workout straight away. An exercise done without a variant before it had any keeps that as a **Standard** button. Each exercise is a card with a row per set. What you type is saved as you go. **+ Set** adds a set copying the one before, so a repeat set is one tap. Each card shows **Last time** (the sets from the last day you did that exercise and variant) and the **30-day best** (the best set of the 30 days before this one), to beat. Rate how tired the session felt from **1 Fresh** to **5 Wrecked**, and add notes. There's one workout a day; an empty one is dropped.
+- **How sets are measured** depends on the exercise: **Weight × reps** (a lift), **Bodyweight reps** (with optional added weight), **Timed hold** (seconds, with optional added weight) or **Hang** (seconds, added weight and edge depth in mm). Weights are in pounds. Added weight can be negative for assistance, such as a pulley taking weight off a hang.
+- **Exercises** lists them by kind, with their variants and when you last did each. **New exercise** adds one. The app starts with common ones (bench press, overhead press, deadlift, squat, row, pull-up, push-up, dip, plank, L-sit, max hang).
+- **An exercise's page** charts your progress: one small chart per variant, each day's best set over time. Hover or tap a point (or use the arrow keys) for its value, date and, for hangs, the edge. A variant's chart shows the heaviest set once any set has had weight added (an unweighted set counts as +0 lb); until then it's the most reps for bodyweight exercises and the longest hold for timed holds and hangs. The history below lists every session's sets. Variants can be added, renamed, or deleted while unused. An exercise that has been done can't be deleted or change how it's measured.
 
 ### Wall
 
@@ -228,7 +271,7 @@ The third switch at the top of Climbs: boulders and variations saved with **Save
 "Midnight Grove": a neutral near-black page, a dark forest-green panel, and a spruce-green wall that stands apart from the page. Yuzu is the single accent color, and the hold-role colors are reserved for the board.
 
 - **Type:** headings use **Bricolage Grotesque**, stored in `static/fonts/` under the SIL Open Font License, so it works offline. Body text uses the system font.
-- **Grades:** shown as one to four little yuzu, from Easy ●○○○ to Project ●●●●. **Warm-up**, below Easy, is a leaf sprouting from a mound of soil: the stem grows up, its two leaves unfold and sway, and it sinks back to grow again.
+- **Grades:** shown as one to four little yuzu, from Easy ●○○○ to Project ●●●●. **Warm-up**, below Easy, is a leaf sprouting from a mound of soil: the stem grows up, its two leaves unfold and sway, and it sinks back to grow again. Where a grade is in the spotlight (a climb's Grade line, the grade picked in Set boulder, and the climb on the Climbs list's board) its yuzu fall from the tree and roll into place, one after another, each time it comes into view; Project's ringed fourth then drops into its ring and glows. Everywhere else they stay still.
 
   <img src="docs/img/grades.webp" alt="The grade picker: Easy, Medium, Hard and Project, shown as one to four yuzu" width="400">
 
@@ -241,14 +284,21 @@ The third switch at the top of Climbs: boulders and variations saved with **Save
 ## Layout
 
 ```
-app.py          Flask app + JSON API (FA / repeat / possible-vs-legacy logic lives here)
+app.py          Flask app + JSON API (FA / repeat / possible-vs-legacy logic lives here), sends and tries
+auth.py         the admin login: password, session cookie, `--set-admin`
+outdoor.py      the admin's outdoor sessions and climbs (API)
+workouts.py     the admin's workouts, exercises, and progress (API)
+fingers.py      the admin's finger checks: a score per finger at the start and end of a session (API)
+helpers.py      request helpers shared by the above: JSON errors, parsing dates and numbers
 db.py           SQLite connection helpers + in-place migration of older databases
-schema.sql      tables: climbers, holds, routes (parent_id = variation), route_holds, sends, volumes, circuits, colors
+schema.sql      tables: climbers, holds, routes (parent_id = variation), route_holds, sends, tries, volumes, circuits, colors,
+                settings, outdoor_climbs/sessions/entries, exercises, exercise_variants, workouts, workout_exercises, workout_sets,
+                finger_checks
 geometry.py     board dimensions, t-nut labels, nearest t-nut
 hold_names.py   nouns for each letter, used to name holds
 uploads/holds/  uploaded hold PNGs, and in board/ the smaller copies the wall draws, sized for each screen (git-ignored)
 seed.py         demo holds, routes, and sends
 docs/img/       README screenshots and diagrams
-static/         index.html, css/app.css, fonts/, img/, js/ (board.js renders the SVG wall, palette.js the color list and its dialogs, icons.js the icon set, views/ hold the panels)
+static/         index.html, css/app.css, fonts/, img/, js/ (board.js renders the SVG wall, calendar.js the month calendar, hands.js the finger-check hands, chart.js the progress charts, palette.js the color list and its dialogs, icons.js the icon set, views/ hold the panels)
 tests/          API + geometry tests (stdlib unittest)
 ```

@@ -1332,8 +1332,10 @@ export function createBoard(container, spec, holds, { onHoldClick, onHoldHover, 
   }
   sizeOutlines();
   PHONE.addEventListener('change', sizeOutlines);
-  // The frame changes size with the page.
+  // The frame changes size with the page. It has none while a calendar takes
+  // the wall's place (app.js CALENDAR_VIEWS), so it keeps the last one.
   new ResizeObserver(([entry]) => {
+    if (!entry.contentRect.width) return;
     frame.w = entry.contentRect.width;
     place();
     sizeVertices();

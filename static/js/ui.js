@@ -46,7 +46,9 @@ export function svg(tag, attrs, ...children) {
 // For views whose list scrolls under fixed controls: remembers the list's
 // scroll position in `store[key]` across visits, and marks `root` as
 // `scrolled` (CSS shades the controls' bottom edge) once it leaves the top.
-export function trackListScroll(root, scroller, store, key) {
+// With `page`, where the page scrolls instead of the list (phones), it
+// remembers the page's.
+export function trackListScroll(root, scroller, store, key, { page = false } = {}) {
   let frame = 0;
   scroller.addEventListener('scroll', () => {
     if (frame) return;
@@ -56,9 +58,15 @@ export function trackListScroll(root, scroller, store, key) {
       root.classList.toggle('scrolled', scroller.scrollTop > 2);
     });
   }, { passive: true });
+  const pageScrolls = () => page && scroller.scrollHeight <= scroller.clientHeight + 1;
+  const onPageScroll = () => {
+    if (pageScrolls()) store[key] = window.scrollY;
+  };
+  if (page) window.addEventListener('scroll', onPageScroll, { passive: true });
   return {
     restore() {
-      scroller.scrollTop = store[key] || 0;
+      if (pageScrolls()) window.scrollTo(0, store[key] || 0);
+      else scroller.scrollTop = store[key] || 0;
     },
     reset() {
       scroller.scrollTop = 0;
@@ -66,6 +74,7 @@ export function trackListScroll(root, scroller, store, key) {
     },
     stop() {
       cancelAnimationFrame(frame);
+      window.removeEventListener('scroll', onPageScroll);
     },
   };
 }
@@ -82,6 +91,13 @@ export function fmtDate(iso) {
   if (!iso) return '';
   const d = new Date(`${iso}T00:00:00`);
   return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
+// "Nov 17", with the year only when it isn't this one.
+export function shortDate(iso) {
+  const d = new Date(`${iso}T00:00:00`);
+  const year = d.getFullYear() !== new Date().getFullYear() ? 'numeric' : undefined;
+  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year });
 }
 
 // ---- small components ----------------------------------------------------
@@ -210,14 +226,15 @@ export function celebrate(anchor, { big = false } = {}) {
 }
 
 // Opens a <dialog>. `body` is a node; resolves with the button value or null.
-export function dialog({ title, body, actions }) {
+// `className` is added to the dialog's own (e.g. to size one differently).
+export function dialog({ title, body, actions, className = '' }) {
   return new Promise((resolve) => {
     const form = h('form', { method: 'dialog', class: 'dialog-form' },
       h('h2', { class: 'dialog-title' }, title),
       body,
       h('div', { class: 'dialog-actions' },
         actions.map((a) => h('button', { value: a.value, class: `btn ${a.class || ''}`, type: a.value === 'cancel' ? 'button' : 'submit', formnovalidate: a.value === 'cancel' }, a.label))));
-    const el = h('dialog', { class: 'dialog' }, form);
+    const el = h('dialog', { class: `dialog ${className}`.trim() }, form);
     form.querySelectorAll('button[value=cancel]').forEach((b) => b.addEventListener('click', () => el.close('cancel')));
     el.addEventListener('close', () => {
       el.remove();
@@ -237,8 +254,11 @@ export async function confirmDialog(title, message, confirmLabel = 'Delete', con
   return result === 'ok';
 }
 
-export async function promptDialog(title, label, placeholder = '', { value = '', confirmLabel = 'Add', maxLength } = {}) {
-  const input = h('input', { type: 'text', class: 'input', required: true, placeholder, value, maxlength: maxLength, autocomplete: 'off' });
+export async function promptDialog(title, label, placeholder = '', { value = '', confirmLabel = 'Add', maxLength, type = 'text' } = {}) {
+  const input = h('input', {
+    type, class: 'input', required: true, placeholder, value, maxlength: maxLength,
+    autocomplete: type === 'password' ? 'current-password' : 'off',
+  });
   const result = await dialog({
     title,
     body: field(label, input),

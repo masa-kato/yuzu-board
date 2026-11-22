@@ -1,3 +1,4 @@
+import json
 import os
 import random
 import re
@@ -32,6 +33,10 @@ VOLUME_COLUMNS = [
     ("faces", "TEXT NOT NULL DEFAULT '[]'"),
 ]
 
+OUTDOOR_CLIMB_COLUMNS = [
+    ("prior_sessions", "INTEGER NOT NULL DEFAULT 0 CHECK (prior_sessions >= 0)"),
+]
+
 # The color list a new database starts with (and an older one, when it first
 # gains the `colors` table). After that the list is edited in the app.
 DEFAULT_COLORS = [
@@ -52,6 +57,23 @@ DEFAULT_COLORS = [
     ("White", "#f1f1f1"),
 ]
 
+# The exercise list a new database starts with (and an older one, when it first
+# gains the `exercises` table): (name, kind, variants). After that the list is
+# edited in the Workout tab.
+DEFAULT_EXERCISES = [
+    ("Bench press", "weight", ["Barbell", "Dumbbell"]),
+    ("Overhead press", "weight", ["Barbell", "Dumbbell"]),
+    ("Deadlift", "weight", ["Barbell", "Trap bar"]),
+    ("Squat", "weight", ["Barbell", "Goblet"]),
+    ("Row", "weight", ["Barbell", "Dumbbell", "Cable"]),
+    ("Pull-up", "bodyweight", ["Overhand", "Chin-up"]),
+    ("Push-up", "bodyweight", []),
+    ("Dip", "bodyweight", []),
+    ("Plank", "timed", []),
+    ("L-sit", "timed", []),
+    ("Max hang", "hang", ["Half crimp", "Open hand", "Full crimp"]),
+]
+
 
 def connect(path):
     conn = sqlite3.connect(path)
@@ -60,15 +82,25 @@ def connect(path):
     return conn
 
 
+def has_table(conn, name):
+    return conn.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?", (name,)).fetchone() is not None
+
+
 def init_db(conn):
     # Only a database that has never had the color list gets the defaults, so
-    # an edited list (even an emptied one) is never refilled.
-    had_colors = conn.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'colors'").fetchone()
+    # an edited list (even an emptied one) is never refilled. Likewise exercises.
+    had_colors = has_table(conn, "colors")
+    had_exercises = has_table(conn, "exercises")
     with open(SCHEMA_PATH) as f:
         conn.executescript(f.read())
     if not had_colors:
         conn.executemany("INSERT INTO colors (name, hex, position) VALUES (?, ?, ?)",
                          [(name, hex_, i) for i, (name, hex_) in enumerate(DEFAULT_COLORS)])
+    if not had_exercises:
+        for name, kind, variants in DEFAULT_EXERCISES:
+            exercise_id = conn.execute("INSERT INTO exercises (name, kind) VALUES (?, ?)", (name, kind)).lastrowid
+            conn.executemany("INSERT INTO exercise_variants (exercise_id, name, position) VALUES (?, ?, ?)",
+                             [(exercise_id, v, i) for i, v in enumerate(variants)])
     migrate(conn)
     conn.commit()
 
@@ -117,7 +149,7 @@ def widen_grades(conn):
 
 def migrate(conn):
     widen_grades(conn)
-    for table, columns in (("holds", HOLD_COLUMNS), ("volumes", VOLUME_COLUMNS)):
+    for table, columns in (("holds", HOLD_COLUMNS), ("volumes", VOLUME_COLUMNS), ("outdoor_climbs", OUTDOOR_CLIMB_COLUMNS)):
         have = {r["name"] for r in conn.execute("PRAGMA table_info(%s)" % table)}
         for column, decl in columns:
             if column not in have:
@@ -152,6 +184,14 @@ def migrate(conn):
         "CREATE UNIQUE INDEX IF NOT EXISTS idx_holds_active_name "
         "ON holds(name COLLATE NOCASE) WHERE removed_at IS NULL"
     )
+
+    # Finger scores once ran from 1 (healthy) to 10; healthy is 0 now. A 1 is
+    # a score again afterwards, so the database's user_version says it's done.
+    if conn.execute("PRAGMA user_version").fetchone()[0] < 1:
+        for c in conn.execute("SELECT id, scores FROM finger_checks").fetchall():
+            scores = [0 if s == 1 else s for s in json.loads(c["scores"])]
+            conn.execute("UPDATE finger_checks SET scores = ? WHERE id = ?", (json.dumps(scores), c["id"]))
+        conn.execute("PRAGMA user_version = 1")
 
 
 def get_db():

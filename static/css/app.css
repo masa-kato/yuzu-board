@@ -88,6 +88,23 @@
   --first-send: var(--leaf-text);
   --repeat: var(--clay);
   --fa: var(--yuzu);
+  --tried: #8ea39a;                       /* a try, quieter than a send */
+  --outdoor: #d2a679;                     /* sandstone, for days out */
+  --sent-soft: rgba(152, 194, 90, 0.14);
+
+  /* finger checks (hands.js): a dot per fingertip, quiet when healthy, then
+     blue → red with pain */
+  --finger-ink: #10120f;                  /* a score written on a colored tip */
+  --fingers: #b273df;                     /* the ramp's middle, for the log's mark */
+  --fingers-soft: rgba(178, 115, 223, 0.16);
+  --fingers-text: #cfa9f0;
+
+  /* calendar (calendar.js): climbing days in yuzu, days out in sandstone,
+     workouts in a cool blue */
+  --climb-day: var(--yuzu);
+  --outdoor-day: rgba(222, 150, 100, 0.22);
+  --workout: #6cb4ee;
+  --workout-soft: rgba(108, 180, 238, 0.14);
 
   /* type */
   --font-display: "Bricolage Grotesque", ui-sans-serif, system-ui, sans-serif;
@@ -207,6 +224,7 @@ a:focus-visible, button:focus-visible, summary:focus-visible { outline: 2px soli
   transition: color 0.15s;
 }
 .tabs a:hover { color: var(--text); }
+.tab-short { display: none; }   /* phones say "Set" for Set boulder, below */
 .tabs a.active { color: var(--text); }
 .tabs a::after {
   content: "";
@@ -273,6 +291,10 @@ select option { background: var(--surface); color: var(--text); }
   margin: 0 auto;
   padding: 20px 24px 28px;
 }
+
+/* the Outdoors tab: neither the wall nor a calendar, so the panel alone, centered */
+body.solo-mode .layout { grid-template-columns: minmax(0, 720px); justify-content: center; }
+body.solo-mode .board-pane { display: none; }
 
 .board-pane {
   position: sticky;
@@ -549,8 +571,11 @@ select option { background: var(--surface); color: var(--text); }
 @media (max-width: 560px) {
   .topbar { flex-wrap: wrap; height: auto; padding: 8px 16px 0; gap: 4px 12px; }
   .tabs { order: 3; width: 100%; height: 38px; justify-content: space-between; }
-  /* five tabs share one row; longer labels get more of it */
+  /* five tabs share one row (seven for the admin, a little smaller); longer labels get more of it */
   .tabs a { flex: 1 1 auto; justify-content: center; padding: 0 2px; font-size: 14px; white-space: nowrap; }
+  body.admin .tabs a { font-size: 12px; padding: 0 1px; }
+  .tab-long { display: none; }
+  .tab-short { display: inline; }
   .tabs a::after { bottom: 6px; left: 22%; right: 22%; }
   .zoom-controls { padding: 2px; }
   .zoom-controls .icon-btn { width: 28px; height: 28px; }
@@ -879,6 +904,8 @@ input[type="range"]:disabled { opacity: 0.4; cursor: not-allowed; }
 }
 .chip-row::-webkit-scrollbar { display: none; }
 .chip-row > * { flex: none; }
+/* chips that wrap in place, in a card or a dialog, instead of scrolling past the panel's edge */
+.chip-row.wrap { flex-wrap: wrap; margin: 0; padding: 0; overflow: visible; -webkit-mask-image: none; mask-image: none; }
 .chip {
   display: inline-flex;
   align-items: center;
@@ -979,7 +1006,8 @@ input[type="range"]:disabled { opacity: 0.4; cursor: not-allowed; }
   background: var(--surface-2);
   border-radius: var(--r-pill);
 }
-.segmented-nav a {
+.segmented-nav button { border: none; background: none; font: inherit; cursor: pointer; }
+.segmented-nav a, .segmented-nav button {
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -992,7 +1020,8 @@ input[type="range"]:disabled { opacity: 0.4; cursor: not-allowed; }
   text-decoration: none;
   transition: background 0.18s var(--ease), color 0.15s;
 }
-.segmented-nav a:hover { color: var(--text); }
+.segmented-nav a:hover, .segmented-nav button:hover { color: var(--text); }
+.segmented-nav button[aria-current="page"],
 .segmented-nav a[aria-current="page"] {
   background: var(--surface-4);
   color: var(--text);
@@ -1096,6 +1125,60 @@ input[type="range"]:disabled { opacity: 0.4; cursor: not-allowed; }
   transform: rotate(-24deg);
 }
 .pip.project { outline: 1.25px solid var(--yuzu); outline-offset: 1.5px; }
+/* In the spotlight spots (a climb's Grade line, the grade picked in Set
+   boulder, and the climb on the list's board) the yuzu fall from the tree and
+   roll into place, once, one after another: each drops in above the fourth
+   slot, bounces, and rolls left into its own. Project's fourth then drops
+   straight into its ring and glows on. Everywhere else they just sit there.
+   Transforms and opacity only. */
+.pip.on::before { content: ""; position: absolute; inset: 0; border-radius: 50%; opacity: 0; pointer-events: none; }
+:is(.meta dd, .seg input:checked + span, .route-card.on-board .route-title) .pip.on {
+  z-index: 1;   /* over the empty slots it rolls past */
+  animation: yuzu-fall-roll 1.1s linear both;
+}
+:is(.meta dd, .seg input:checked + span, .route-card.on-board .route-title) .pip.on:nth-child(1) { --dx: 33px; }
+:is(.meta dd, .seg input:checked + span, .route-card.on-board .route-title) .pip.on:nth-child(2) { --dx: 22px; animation-delay: 0.4s; }
+:is(.meta dd, .seg input:checked + span, .route-card.on-board .route-title) .pip.on:nth-child(3) { --dx: 11px; animation-delay: 0.8s; }
+/* Project: its ring stays put on the row rather than on the yuzu (which
+   falls into it), and the glow starts once the yuzu has landed. */
+:is(.meta dd, .seg input:checked + span, .route-card.on-board .route-title) .grade-project .pips { position: relative; }
+:is(.meta dd, .seg input:checked + span, .route-card.on-board .route-title) .grade-project .pips::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  right: -2.75px;
+  width: 13.5px;
+  height: 13.5px;
+  margin-top: -6.75px;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 1.25px var(--yuzu);
+  pointer-events: none;
+}
+:is(.meta dd, .seg input:checked + span, .route-card.on-board .route-title) .pip.project { outline-color: transparent; animation: yuzu-drop-in 0.8s linear 1.7s both; }   /* once the third has rolled clear */
+:is(.meta dd, .seg input:checked + span, .route-card.on-board .route-title) .grade-project .pip.project::before {
+  inset: -2.75px;   /* on the ring */
+  box-shadow: 0 0 0 1.5px var(--yuzu);
+  animation: yuzu-glow 2.4s ease-out 2.5s infinite;
+}
+@keyframes yuzu-fall-roll {
+  0% { opacity: 0; transform: translate(var(--dx), -14px) rotate(0deg); animation-timing-function: ease-in; }
+  10% { opacity: 1; }
+  36% { transform: translate(var(--dx), 0) rotate(0deg); animation-timing-function: ease-out; }
+  44% { transform: translate(var(--dx), -3px) rotate(0deg); animation-timing-function: ease-in; }
+  52% { transform: translate(var(--dx), 0) rotate(0deg); animation-timing-function: ease-in-out; }
+  100% { opacity: 1; transform: translate(0, 0) rotate(-360deg); }
+}
+@keyframes yuzu-drop-in {
+  0% { opacity: 0; transform: translateY(-14px); animation-timing-function: ease-in; }
+  15% { opacity: 1; }
+  55% { transform: none; animation-timing-function: ease-out; }
+  70% { transform: translateY(-3px); animation-timing-function: ease-in; }
+  85%, 100% { opacity: 1; transform: none; }
+}
+@keyframes yuzu-glow {
+  0% { opacity: 0.7; transform: none; }
+  70%, 100% { opacity: 0; transform: scale(2); }
+}
 /* Warm-up, below Easy: a leaf sprouting from the ground (ui.js sprout). The
    stem grows up out of the soil, the two leaves unfold and sway, then the
    plant sinks back behind the soil and grows again. Transforms only, so it's
@@ -1541,6 +1624,40 @@ input[type="range"]:disabled { opacity: 0.4; cursor: not-allowed; }
 
 /* ---- views: route page ----------------------------------------------------------------- */
 
+/* a climb's family (routeDetail.js): rows like the Climbs list's, in one box,
+   the one on show outlined and "Add a variation" last */
+.family-list { display: flex; flex-direction: column; overflow: hidden; background: var(--surface-2); border-radius: var(--r-md); }
+.family-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 46px;
+  padding: 9px 12px;
+  background: none;
+  border: none;
+  border-top: 1px solid var(--line);
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.family-row:first-child { border-top: none; }
+.family-row:hover { background: var(--surface-hover); }
+.family-row:focus-visible { outline: 2px solid var(--yuzu); outline-offset: -2px; }
+.family-row.current { box-shadow: inset 0 0 0 1.5px var(--yuzu-line); cursor: default; }
+.family-row.current:first-child { border-radius: var(--r-md) var(--r-md) 0 0; }
+.family-arrow { flex: none; color: var(--muted); }
+.family-name { min-width: 0; overflow: hidden; font-size: 15px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.family-original { flex: none; color: var(--muted); font-size: 12.5px; }
+.family-row .grade { margin-left: auto; }
+.family-row > .icon-chevron-right { flex: none; color: var(--muted); }
+.family-row.current > .icon-chevron-right { visibility: hidden; }
+.family-row.impossible > :not(.impossible-tag) { opacity: 0.45; }
+.family-add { justify-content: center; color: var(--muted); font-size: 14px; font-weight: 600; }
+.family-add:hover { color: var(--yuzu); }
+
 .route-kicker { margin-bottom: -10px; color: var(--muted); font-size: 13px; font-weight: 500; }
 .draft-note { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px 12px; margin-top: -8px; font-size: 13px; }
 .draft-note .btn-small { align-self: center; }
@@ -1613,6 +1730,18 @@ input[type="range"]:disabled { opacity: 0.4; cursor: not-allowed; }
 .ascent-name { font-weight: 600; }
 .ascents li .muted { margin-left: auto; font-size: 13px; }
 .ascents p { margin: 8px 0 0; }
+
+/* your tries and sends on a climb, with their notes (routeDetail.js) */
+.my-history h2 { font-size: 18px; }
+.my-history ol { display: flex; flex-direction: column; margin: 10px 0 0; padding: 0; list-style: none; }
+.my-history li { padding: 9px 0; border-bottom: 1px solid var(--line); }
+.my-history li:last-child { border-bottom: none; }
+.my-history-head { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+.my-history-note { margin: 6px 0 0; color: var(--text-2); font-size: 14px; white-space: pre-wrap; }
+/* an outdoor session's notes on the day, under the climb's own */
+.my-history-day { margin: 6px 0 0; color: var(--muted); font-size: 13px; white-space: pre-wrap; }
+.my-history-day strong { color: var(--text-2); font-weight: 600; }
+.btn.tried-today { color: var(--leaf-text); }
 
 /* ---- views: editor --------------------------------------------------------------------- */
 
@@ -1703,7 +1832,9 @@ input[type="range"]:disabled { opacity: 0.4; cursor: not-allowed; }
 .stat-label { color: var(--muted); font-size: 12.5px; }
 
 .log-controls { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
-.log-legend { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 12.5px; }
+.log-legend { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; color: var(--muted); font-size: 12.5px; }
+.legend-item { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.legend-item .legend-swatch { margin-left: 0; }
 .legend-swatch { width: 4px; height: 14px; margin-left: 8px; border-radius: 2px; }
 .legend-swatch.first { background: var(--first-send); }
 .legend-swatch.repeat { background: var(--repeat); }
@@ -1762,7 +1893,7 @@ input[type="range"]:disabled { opacity: 0.4; cursor: not-allowed; }
 .log-day[open] > summary::after { transform: rotate(225deg); margin-bottom: -2px; }
 .log-day > summary:hover .log-day-date { color: var(--yuzu); }
 .log-day-date { font-weight: 650; transition: color 0.15s; }
-.log-day-count { color: var(--muted); font-size: 13px; }
+.log-day-kinds { color: var(--muted); font-size: 13px; }
 .log-day-sends { display: flex; flex-direction: column; gap: 8px; padding: 4px 0 8px; }
 
 .send-entry {
@@ -1778,6 +1909,30 @@ input[type="range"]:disabled { opacity: 0.4; cursor: not-allowed; }
 }
 .send-entry.first { --mark: var(--first-send); }
 .send-entry.repeat { --mark: var(--repeat); }
+.send-entry.tried { --mark: var(--tried); }
+.send-entry.outdoor { --mark: var(--outdoor); }
+.legend-swatch.tried { background: var(--tried); }
+.legend-swatch.outdoor { background: var(--outdoor); }
+.legend-swatch.fingers { background: var(--fingers); }
+.send-entry.fingers-entry { --mark: var(--fingers); }
+.badge.fingers-tag { background: var(--fingers-soft); color: var(--fingers-text); }
+.fingers-checks { display: flex; flex-wrap: wrap; gap: 12px 20px; margin-top: 10px; }
+.fingers-check { display: flex; align-items: flex-start; gap: 10px; flex: 1 1 220px; min-width: 0; }
+.fingers-check .hands { flex: none; }
+.fingers-check-text { min-width: 0; }
+.fingers-phase { font-size: 13.5px; }
+.fingers-check .send-comment { margin-top: 2px; }
+.log-actions .btn .hands { flex: none; margin: -2px 0; }
+.log-actions .btn .hand-tip { fill: var(--muted); }   /* an icon here, not a check */
+.badge.tried-tag { background: rgb(var(--tint-rgb) / 0.06); color: var(--text-2); }
+.badge.sent-tag { background: var(--sent-soft); color: var(--leaf-text); }
+.outdoor-grade { color: var(--muted); font-size: 12.5px; font-weight: 600; }
+.workout-link { display: inline-flex; align-items: center; gap: 6px; align-self: flex-start; padding: 2px 0; color: var(--workout); font-size: 13.5px; }
+.workout-link:hover { color: var(--text); }
+.log-actions { gap: 6px; }
+/* a day picked on the calendar glows once as it scrolls into view */
+.log-day.flash > summary { animation: day-flash 1.4s var(--ease); border-radius: var(--r-sm); }
+@keyframes day-flash { from { background: var(--yuzu-soft); } }
 .send-title { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; }
 .send-comment { margin: 6px 0 0; color: var(--text-2); font-size: 14px; white-space: pre-wrap; }
 .send-actions { display: flex; gap: 2px; margin: -4px -4px 0 0; }
@@ -1851,6 +2006,59 @@ input[type="range"]:disabled { opacity: 0.4; cursor: not-allowed; }
   border-radius: var(--r-sm);
   cursor: pointer;
 }
+
+/* a field's dropdown (outdoor.js combo): a text field with a chevron, and a
+   popover list of suggestions under it, in sections */
+.input.combo-input {
+  padding-right: 36px;
+  background-image: var(--chevron);
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  background-size: 14px;
+}
+.combo-input[aria-expanded="true"] { border-color: var(--yuzu-line); box-shadow: 0 0 0 3px var(--focus-ring); }
+.combo-menu {
+  inset: auto;
+  margin: 0;
+  padding: 4px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-2);
+}
+.combo-head {
+  padding: 8px 10px 4px;
+  color: var(--muted);
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+.combo-head:not(:first-child) { margin-top: 4px; border-top: 1px solid var(--line); padding-top: 10px; }
+.combo-info { padding: 4px 10px 10px; color: var(--muted); font-size: 13px; }
+.combo-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 6px 10px;
+  border-radius: var(--r-sm);
+  font-size: 15px;
+  cursor: pointer;
+}
+.combo-option[aria-selected="true"] { background: var(--surface-3); }
+@media (hover: hover) and (pointer: fine) {
+  .combo-option:hover { background: var(--surface-2); }
+  .combo-option[aria-selected="true"]:hover { background: var(--surface-3); }
+}
+.combo-option > .icon, .combo-option .sent-mark { flex: none; }
+.combo-name { min-width: 0; overflow: hidden; font-weight: 600; white-space: nowrap; text-overflow: ellipsis; }
+.combo-note { flex: none; margin-left: auto; padding-left: 8px; color: var(--muted); font-size: 12.5px; }
+.combo-option.new { color: var(--yuzu); }
+.combo-name + .icon { color: var(--yuzu); }
 
 /* the shared color list (palette.js): the color field, the list dialog and
    the editor (HEX or RGB) */
@@ -2012,6 +2220,486 @@ input[type="range"]:disabled { opacity: 0.4; cursor: not-allowed; }
 .hold-pop-name { font-weight: 700; }
 .hold-pop-count { color: var(--text-2); font-variant-numeric: tabular-nums; }
 
+/* ---- views: outdoor (outdoor.js) and pickers ------------------------------------------- */
+
+/* a list to pick from or open: climbs to add to a session, outdoor climbs, exercises */
+.lookup-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 42px;
+  padding: 8px 10px;
+  background: none;
+  border: none;
+  border-radius: var(--r-sm);
+  color: var(--text);
+  font: inherit;
+  font-size: 14.5px;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.lookup-row:hover { background: var(--surface-2); }
+.lookup-row > .icon:last-child { margin-left: auto; color: var(--muted); }
+.lookup-name { min-width: 0; overflow: hidden; font-weight: 600; white-space: nowrap; text-overflow: ellipsis; }
+.lookup-meta { margin-left: auto; white-space: nowrap; }
+
+.outdoor-entry-list { display: flex; flex-direction: column; gap: 10px; }
+.outdoor-entry { gap: 10px; padding: 12px 12px 14px; border-left: 3px solid var(--outdoor); }
+.outdoor-entry-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+.outdoor-entry-name { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; min-width: 0; }
+.outdoor-entry-head .icon-btn { margin: -4px -4px 0 0; }
+.outdoor-entry-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+.outdoor-entry .chip:not(.on) { background: var(--surface-3); }
+.grade-input { width: 96px; }
+.earlier-notes > summary { color: var(--outdoor); font-size: 13px; font-weight: 600; cursor: pointer; }
+.earlier-notes > summary:hover { color: var(--text); }
+.earlier-body { padding: 6px 0 0; }
+.climb-history { display: flex; flex-direction: column; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.heading-grade { margin-left: 12px; font-family: var(--font-ui); font-size: 16px; }
+.outdoor-climbs { display: flex; flex-direction: column; gap: 6px; }
+/* a climb on the Outdoors tab: its name, grade and area, then its sessions */
+.outdoor-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 10px 10px 14px;
+  background: var(--surface-2);
+  border: none;
+  border-radius: var(--r-md);
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.outdoor-row:hover { background: var(--surface-3); }
+.outdoor-row > .icon { flex: none; margin-left: auto; color: var(--muted); }
+.outdoor-row-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.outdoor-row-title { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: 15px; }
+.outdoor-row-title .sent-mark, .outdoor-row-title .outdoor-grade { flex: none; }
+
+/* ---- views: workout (workout.js) ----------------------------------------------------- */
+
+.workout-blocks { display: flex; flex-direction: column; gap: 12px; }
+.workout-block { gap: 10px; border-left: 3px solid var(--workout); }
+.block-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+.block-name { font-size: 16px; font-family: var(--font-display); }
+.block-head .icon-btn { margin: -4px -4px 0 0; }
+.block-ref { display: flex; flex-direction: column; gap: 2px; color: var(--text-2); font-size: 13.5px; }
+.block-ref p { margin: 0; }
+.block-ref-label { margin-right: 8px; color: var(--muted); font-size: 12.5px; font-weight: 600; }
+/* a set a row: its number, an input per column, delete */
+.set-rows { display: flex; flex-direction: column; gap: 6px; }
+.set-row { display: grid; grid-template-columns: 28px repeat(var(--cols), minmax(0, 1fr)) 32px; align-items: center; gap: 6px; }
+.set-head { color: var(--muted); font-size: 12px; font-weight: 600; }
+.set-num { color: var(--muted); font-size: 13px; font-weight: 650; text-align: center; font-variant-numeric: tabular-nums; }
+.set-input { height: 38px; min-width: 0; padding: 0 10px; font-variant-numeric: tabular-nums; }
+.set-input::-webkit-inner-spin-button, .set-input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+.set-input { -moz-appearance: textfield; }
+.add-exercise { align-self: flex-start; }
+.tiredness .chip { height: 32px; }
+
+/* Add exercise (workout.js pickExercise): Recent on top, then each exercise
+   with a bar of buttons, one per variant. The popup fits the screen and only
+   the list scrolls, fading out at its foot. */
+.xp-dialog { width: min(540px, calc(100vw - 24px)); max-height: calc(100dvh - 24px); overflow: hidden; }
+.xp-dialog[open] { display: flex; flex-direction: column; }
+.xp-dialog .dialog-form { flex: 1; min-height: 0; gap: 14px; padding-bottom: 16px; }
+.xp-dialog .dialog-form > .xp { flex: 1; min-height: 0; gap: 14px; }
+.xp > :not(.xp-list), .xp-dialog .dialog-title, .xp-dialog .dialog-actions { flex: none; }
+.xp-label, .xp-group { color: var(--muted); font-size: 11.5px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
+.xp-recent { display: flex; flex-direction: column; gap: 8px; }
+.xp-recent-row { display: flex; flex-wrap: wrap; gap: 8px; }
+.xp-recent-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 38px;
+  padding: 0 14px 0 11px;
+  background: var(--yuzu-soft);
+  border: none;
+  border-radius: var(--r-pill);
+  box-shadow: inset 0 0 0 1px var(--yuzu-line);
+  color: var(--text);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.xp-recent-btn:hover { background: rgba(237, 187, 28, 0.22); }
+.xp-recent-btn .icon { color: var(--yuzu); }
+.xp-recent-btn span { color: var(--text-2); font-weight: 500; }
+.xp-list {
+  flex: 1 1 auto;
+  min-height: 140px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  overflow-y: auto;
+  margin: 0 -22px;
+  padding: 2px 22px 18px;
+  -webkit-mask-image: linear-gradient(#000 calc(100% - 28px), transparent);
+  mask-image: linear-gradient(#000 calc(100% - 28px), transparent);
+}
+.xp-group { margin-top: 8px; }
+.xp-group:first-child { margin-top: 0; }
+.xp-ex { display: flex; flex-direction: column; gap: 7px; }
+.xp-ex-head { display: flex; align-items: baseline; gap: 8px; }
+.xp-name { margin-right: auto; color: var(--text); font-size: 16px; font-weight: 650; }
+.xp-add-variant {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  align-self: center;
+  height: 26px;
+  padding: 0 9px 0 7px;
+  background: none;
+  border: none;
+  border-radius: var(--r-pill);
+  box-shadow: inset 0 0 0 1px var(--line-strong);
+  color: var(--text-2);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.xp-add-variant:hover { background: var(--surface-2); color: var(--text); }
+.xp-add-variant .icon { color: var(--yuzu); }
+.xp-date { color: var(--muted); font-size: 12px; font-weight: 500; font-variant-numeric: tabular-nums; }
+.xp-seg { display: flex; gap: 2px; overflow: hidden; border-radius: var(--r-md); }
+.xp-seg button {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  min-height: 48px;
+  padding: 4px 8px;
+  background: var(--surface-2);
+  border: none;
+  color: var(--text);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.xp-seg button:hover:not(:disabled) { background: var(--surface-3); }
+.xp-seg button:focus-visible { outline: 2px solid var(--yuzu); outline-offset: -2px; }
+.xp-seg-label { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.xp-seg-label .icon { color: var(--yuzu); }
+.xp-seg button .xp-date { font-size: 11.5px; }
+.xp-seg button.xp-added { background: var(--sent-soft); color: var(--leaf-text); cursor: default; }
+.xp-seg button.xp-added .icon { color: var(--leaf-text); }
+.xp-new {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  align-self: flex-start;
+  height: 38px;
+  padding: 0 14px;
+  background: none;
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--r-pill);
+  color: var(--yuzu);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.xp-new:hover { background: var(--yuzu-soft); }
+
+.exercise-list { display: flex; flex-direction: column; gap: 2px; }
+.exercise-list .usage-head { margin-top: 10px; }
+.exercise-list .usage-head:first-child { margin-top: 0; }
+.exercise-row-text { display: flex; flex-direction: column; min-width: 0; }
+.variant-chip { padding-left: 0; }
+.variant-name { height: 100%; padding: 0 4px 0 11px; background: none; border: none; color: inherit; font: inherit; cursor: pointer; }
+.section-title { font-size: 18px; }
+
+/* progress charts (chart.js): one series each, in the workout blue */
+.chart-list { display: flex; flex-direction: column; gap: 12px; }
+.chart-card { gap: 6px; }
+.chart-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 10px; }
+.chart { position: relative; min-height: 168px; }
+.chart-svg { display: block; overflow: visible; outline: none; }
+.chart-svg:focus-visible { border-radius: var(--r-sm); box-shadow: 0 0 0 2px var(--focus-ring); }
+.chart-grid { stroke: var(--line); stroke-width: 1; }
+.chart-tick { fill: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+.chart-value { fill: var(--text-2); font-size: 11.5px; font-weight: 650; }
+.chart-area { fill: var(--workout); opacity: 0.1; }
+.chart-line { fill: none; stroke: var(--workout); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.chart-dot { fill: var(--workout); stroke: var(--surface-2); stroke-width: 2; }
+.chart-cross { stroke: var(--line-strong); stroke-width: 1; }
+.chart-hit { fill: transparent; cursor: crosshair; touch-action: pan-y; }
+.chart-tip {
+  position: absolute;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  padding: 6px 10px;
+  background: var(--toast-bg);
+  border-radius: var(--r-sm);
+  box-shadow: inset 0 0 0 1px var(--line-strong), 0 10px 24px -10px rgba(0, 0, 0, 0.85);
+  color: var(--muted);
+  font-size: 12px;
+  white-space: nowrap;
+  pointer-events: none;
+}
+.chart-tip strong { color: var(--text); font-size: 14px; }
+
+/* ---- finger checks: the fingertips (hands.js) and their form (fingers.js) --------------- */
+
+.hands { display: block; overflow: visible; }
+.hand-tip { transition: fill 0.15s; }
+.hand-score { fill: var(--finger-ink); font-size: 4.4px; font-weight: 750; pointer-events: none; }
+.hand-score.healthy { fill: var(--muted); }
+.hand-ring { fill: none; stroke: transparent; stroke-width: 1.1; }
+.hands.interactive .hand-finger { cursor: pointer; outline: none; }
+.hands.interactive .hand-finger:hover .hand-tip { filter: brightness(1.15); }
+.hands.interactive .hand-finger:focus-visible .hand-ring { stroke: var(--text); }
+.hands.interactive .hand-finger.selected .hand-ring { stroke: var(--yuzu); }
+
+.finger-form .segmented-nav { align-self: flex-start; }
+/* the check before, which a new one starts from */
+.finger-last { display: flex; align-items: flex-start; gap: 12px; padding: 10px 12px; border-radius: var(--r-sm); background: var(--surface-2); }
+.finger-last .hands { flex: none; margin-top: 2px; }
+.finger-last-title { display: block; font-size: 13.5px; }
+.finger-last .fingers-phase { margin-top: 2px; }
+.finger-last .send-comment { margin-top: 4px; font-size: 13.5px; }
+.finger-hands { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 6px 0 2px; }
+.finger-hands .hands { width: 100%; max-width: 340px; height: auto; }
+.finger-hand-names { display: flex; justify-content: space-around; width: 100%; max-width: 340px; color: var(--muted); font-size: 12.5px; }
+.finger-pick { display: flex; flex-direction: column; gap: 8px; }
+.finger-name { min-height: 22px; font-size: 15px; }
+.finger-scale { display: grid; grid-template-columns: repeat(11, minmax(0, 1fr)); gap: 4px; }
+.finger-score {
+  height: 42px;
+  padding: 0;
+  background: var(--score);
+  border: none;
+  border-radius: var(--r-sm);
+  color: #0d1210;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 750;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  opacity: 0.55;
+  transition: opacity 0.15s, box-shadow 0.15s;
+}
+.finger-score:hover:not(:disabled) { opacity: 0.85; }
+.finger-score.on { opacity: 1; box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--text); }
+.finger-score:focus-visible { outline: 2px solid var(--yuzu); outline-offset: 2px; }
+.finger-score:disabled { opacity: 0.25; cursor: default; }
+.finger-scale-ends { display: flex; justify-content: space-between; color: var(--muted); font-size: 12px; }
+
+/* a fingertip's finger and score, pointed at with a mouse (hands.js) */
+.finger-tip {
+  position: fixed;
+  z-index: 60;
+  padding: 4px 9px;
+  background: var(--toast-bg);
+  border-radius: var(--r-sm);
+  box-shadow: inset 0 0 0 1px var(--line-strong), 0 8px 20px -8px rgba(0, 0, 0, 0.85);
+  color: var(--text-2);
+  font-size: 12.5px;
+  white-space: nowrap;
+  pointer-events: none;
+}
+.finger-tip strong { color: var(--text); font-variant-numeric: tabular-nums; }
+@media (hover: hover) and (pointer: fine) {
+  .hands.hoverable .hand-finger:hover .hand-tip { stroke: var(--text); stroke-width: 1.5px; vector-effect: non-scaling-stroke; }
+}
+
+/* every check's scores under the form, the fingers in the order drawn */
+.finger-history { margin-top: 28px; }
+.finger-history h2 { margin: 0 0 8px; font-size: 17px; }
+.finger-history > .btn { margin-top: 10px; }
+.finger-table-wrap { overflow-x: auto; }
+.finger-table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.finger-table th, .finger-table td { padding: 3px 1px; text-align: center; font-weight: 500; }
+.finger-table thead th { color: var(--muted); font-size: 11.5px; font-weight: 600; }
+.finger-table .fh-fingers th { padding-bottom: 5px; }
+.finger-table .fh-right { padding-left: 10px; }
+.finger-table .fh-date { padding-right: 6px; color: var(--text-2); font-size: 13px; text-align: left; white-space: nowrap; }
+.finger-table .fh-phase { padding-right: 6px; text-align: left; }
+.fh-phase a { color: var(--muted); font-size: 12px; text-decoration: none; }
+.finger-table tbody tr { cursor: pointer; }
+.finger-table tbody tr.fh-day > * { border-top: 1px solid var(--line); }
+.finger-table tbody tr.current { background: var(--yuzu-soft); }
+.finger-table tbody tr.current .fh-phase a { color: var(--yuzu); }
+@media (hover: hover) and (pointer: fine) {
+  .finger-table tbody tr:not(.current):hover { background: var(--surface-2); }
+}
+.fh-score {
+  display: inline-grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--score);
+  color: var(--finger-ink);
+  font-size: 11.5px;
+  font-weight: 750;
+}
+.fh-score.healthy { color: var(--muted); font-weight: 600; }
+@media (max-width: 560px) {
+  .fh-score { width: 20px; height: 20px; font-size: 11px; }
+  .finger-table .fh-right { padding-left: 6px; }
+}
+@media (max-width: 380px) {
+  .fh-score { width: 18px; height: 18px; font-size: 10.5px; }
+}
+
+/* ---- calendar (calendar.js), in the wall's place on the Logbook and Workout tabs ---- */
+
+.side-pane {
+  position: sticky;
+  top: calc(var(--header-h) + 20px);
+  align-self: start;
+  min-width: 0;
+}
+body.calendar-mode .board-pane { display: none; }
+.side-pane > .empty {
+  background: var(--surface);
+  border-radius: var(--r-lg);
+}
+
+.calendar {
+  position: relative;
+  max-width: 980px;
+  margin: 0 auto;
+  padding: var(--panel-pad);
+  background: var(--surface);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-2);
+}
+.cal-head { display: flex; align-items: center; gap: 8px; margin-bottom: 14px; }
+.cal-title { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 12px; }
+.cal-title h2 { font-size: 22px; }
+.cal-summary { color: var(--muted); font-size: 13px; }
+.cal-today { align-self: center; }
+.cal-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px; }
+.cal-weekday { padding: 0 8px 2px; color: var(--muted); font-size: 12px; font-weight: 600; }
+.cal-day {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  min-width: 0;
+  min-height: 88px;
+  padding: 6px;
+  background: var(--surface-2);
+  border: none;
+  border-radius: var(--r-sm);
+  color: var(--text-2);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.15s, box-shadow 0.15s;
+  isolation: isolate;   /* so its .cal-fill sits just behind the number */
+}
+.cal-day.blank { background: transparent; cursor: default; }
+/* a mouse only: a tapped day would otherwise stay gray, its color hidden */
+@media (hover: hover) and (pointer: fine) {
+  .cal-day:hover:not(:disabled):not(.blank) { background: var(--surface-3); }
+}
+.cal-day.logged { background: transparent; }
+/* a rectangle of color per kind of day, side by side when it was two or three */
+.cal-fill { position: absolute; inset: 0; z-index: -1; display: flex; gap: 2px; pointer-events: none; }
+.cal-fill i { flex: 1; border-radius: var(--r-sm); background: var(--yuzu-soft); }
+.cal-fill .outdoor { background: var(--outdoor-day); }
+.cal-fill .workout { background: var(--workout-soft); }
+/* the picked day's ring, drawn over its colors and its fingertips' band */
+.cal-day.picked::after { content: ""; position: absolute; inset: 0; border-radius: inherit; box-shadow: inset 0 0 0 2px var(--yuzu-line); pointer-events: none; }
+.cal-day:disabled { color: var(--faint); background: rgb(var(--tint-rgb) / 0.02); cursor: default; }
+.cal-num {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  font-size: 13.5px;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+.cal-day.today .cal-num { background: var(--yuzu); color: var(--yuzu-ink); }
+.cal-dots { display: flex; gap: 3px; height: 7px; padding-left: 2px; }
+.cal-dot { display: inline-block; flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--climb-day); }
+.cal-dot.outdoor { background: var(--outdoor); }
+.cal-dot.workout { background: var(--workout); }
+.cal-key { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-top: 12px; color: var(--muted); font-size: 12.5px; }
+.cal-key span { display: inline-flex; align-items: center; gap: 6px; }
+.cal-finger-scale { display: inline-block; width: 46px; height: 8px; border-radius: 4px; }
+/* a day's finger check: its fingertips on a band of their own along the
+   day's bottom, the day's plain color, with its kinds' colors stopping just
+   above. So a split day's rectangles never run behind the dots, and a week of
+   checks lines up as one row. Hovering them shows the day's comments. */
+.cal-day.has-hands { --hands-band: 30px; }
+.cal-day.has-hands .cal-fill { bottom: calc(var(--hands-band) + 2px); }
+.cal-hands {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: var(--hands-band);
+  border-radius: var(--r-sm);
+  line-height: 0;
+}
+.cal-day.logged .cal-hands { background: var(--surface-2); }
+.cal-tip {
+  position: absolute;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: max-content;
+  max-width: 260px;
+  padding: 8px 12px;
+  background: var(--toast-bg);
+  border-radius: var(--r-sm);
+  box-shadow: inset 0 0 0 1px var(--line-strong), 0 10px 24px -10px rgba(0, 0, 0, 0.85);
+  color: var(--text-2);
+  font-size: 12.5px;
+  line-height: 1.4;
+  pointer-events: none;
+}
+.cal-tip-date { color: var(--muted); font-size: 11.5px; font-weight: 600; }
+.cal-tip-part { display: flex; flex-direction: column; gap: 1px; }
+.cal-tip-part strong { color: var(--text); font-size: 13px; }
+
+/* phones (and the narrow column under 1100px): small square days with dots */
+@media (max-width: 1100px) {
+  .cal-day { min-height: 0; aspect-ratio: 1; align-items: center; justify-content: center; gap: 3px; padding: 2px; }
+  .cal-dots { padding-left: 0; }
+  .cal-weekday { padding: 0 0 2px; text-align: center; }
+  /* top-aligned, so a day's number lines up with its row's whether it has fingertips or not */
+  .cal-grid.with-hands .cal-day { aspect-ratio: 3 / 4; justify-content: flex-start; padding-top: 4px; }
+  .cal-num, .cal-dots { flex: none; }
+  .cal-day.has-hands { --hands-band: 17px; }
+  .cal-hands .hands { width: 90%; max-width: 44px; height: auto; }
+}
+@media (max-width: 900px) {
+  .side-pane { position: static; }
+  .calendar { padding: 14px; }
+  .cal-grid { gap: 4px; }
+  .cal-title h2 { font-size: 19px; }
+  .log-day { scroll-margin-top: 16px; }
+}
+
 /* ---- motion ----------------------------------------------------------------------------- */
 
 /* each panel view eases in */
@@ -2023,5 +2711,6 @@ input[type="range"]:disabled { opacity: 0.4; cursor: not-allowed; }
   .skeleton-line, .skeleton-block { animation: none; }
   .route-card.recent { animation: none; box-shadow: inset 0 0 0 2px var(--yuzu-line); }
   .sprout-plant, .sprout-stem, .sprout-leaf { animation: none; }
+  .pip.on, .pip.on::before { animation: none !important; }
   .celebrate { display: none; }
 }

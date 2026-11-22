@@ -1,5 +1,5 @@
 import {
-  ROLES, ROLE_LABELS, append, celebrate, climberOptions, confirmDialog, dialog, faBadge, field, fmtDate, gradeLabel, gradePips, h, icon, roleDot, sentMark, today,
+  ROLES, ROLE_LABELS, append, celebrate, climberOptions, confirmDialog, dialog, faBadge, field, fmtDate, gradePips, h, icon, roleDot, sentMark, today,
 } from '../ui.js';
 import { NAME_MAX, plural as pluralize } from './circuits.js';
 import { listQuery } from './climbs.js';
@@ -92,18 +92,32 @@ export async function render(root, ctx, { routeId, circuitId = null }) {
     ctx.go(order.link(id));
   };
 
-  const familySelect = h('select', {
-    class: 'input', 'aria-label': 'Choose variation', value: String(route.id),
-    onChange: () => {
-      if (familySelect.value === 'new') ctx.go(`#/new?parent=${base.id}`);
-      else ctx.go(`#/route/${familySelect.value}`);
-    },
-  },
-  // A menu can only hold text, so the ones you've sent say so.
-  route.family.map((r) => h('option', { value: String(r.id) },
-    (r.parent_id ? `↳ ${r.name} · ${gradeLabel(r.grade).toLowerCase()}` : `${r.name} (original) · ${gradeLabel(r.grade).toLowerCase()}`)
-    + (r.sent_by_me ? ' · ✓ sent' : '') + (r.possible ? '' : ' — not possible'))),
-  h('option', { value: 'new' }, '+ Add a variation…'));
+  // The problem and its variations, in rows like the Climbs list's: the
+  // grade, a yuzu slice on the ones you've sent, and this one outlined. A tap
+  // opens one; the last row adds a variation.
+  const familyList = h('div', { class: 'family-list', role: 'list', 'aria-label': 'The problem and its variations' },
+    route.family.map((r) => {
+      const current = r.id === route.id;
+      return h('button', {
+        type: 'button', role: 'listitem', class: `family-row${current ? ' current' : ''}${r.possible ? '' : ' impossible'}`,
+        'aria-current': current ? 'page' : null,
+        onPointerdown: () => {
+          if (!current) prefetchRoute(ctx, r.id);
+        },
+        onClick: () => {
+          if (!current) ctx.go(`#/route/${r.id}`);
+        },
+      },
+      r.parent_id && h('span', { class: 'family-arrow', 'aria-hidden': 'true' }, '↳'),
+      h('span', { class: 'family-name' }, r.name),
+      !r.parent_id && h('span', { class: 'family-original' }, 'original'),
+      r.sent_by_me && sentMark(15),
+      !r.possible && h('span', { class: 'badge impossible-tag' }, 'Not possible'),
+      gradePips(r.grade, { label: false }),
+      icon('chevron-right', { size: 16 }));
+    }),
+    h('button', { type: 'button', class: 'family-row family-add', onClick: () => ctx.go(`#/new?parent=${base.id}`) },
+      icon('plus', { size: 15 }), 'Add a variation'));
 
   const counts = Object.fromEntries(ROLES.map((role) => [role, route.holds.filter((x) => x.role === role).length]));
   // The hold counts double as the legend: a chip spotlights its role on the
@@ -156,6 +170,62 @@ export async function render(root, ctx, { routeId, circuitId = null }) {
   h('div', { class: 'actions' },
     h('button', { type: 'button', class: 'btn', onClick: () => (sendForm.hidden = true) }, 'Cancel'),
     h('button', { type: 'submit', class: 'btn btn-primary' }, 'Save send')));
+
+  // ---- mark tried ------------------------------------------------------------
+  // Tried it today, sent or not: one mark a day (attempts aren't counted),
+  // with what you learned on it. A second mark that day just updates the note.
+  const triedToday = route.my_history.find((x) => x.kind === 'try' && x.date === today());
+  const tryDate = h('input', { type: 'date', class: 'input', required: true, value: today(), max: today() });
+  const tryNote = h('textarea', { class: 'input', rows: 3, placeholder: 'What did you learn? Beta, what to try next time, …', value: triedToday?.note || '' });
+  const removeTry = async () => {
+    try {
+      await ctx.api.deleteTry(triedToday.id);
+      ctx.toast('Mark removed.');
+      ctx.go(here);
+    } catch (err) {
+      ctx.toast(err.message, 'error');
+    }
+  };
+  const tryForm = h('form', {
+    class: 'card send-form', hidden: true,
+    onSubmit: async (e) => {
+      e.preventDefault();
+      const me = ctx.requireMe();
+      if (!me) return;
+      try {
+        await ctx.api.markTried({ route_id: route.id, climber_id: me, tried_date: tryDate.value, note: tryNote.value });
+        ctx.toast(tryDate.value === today() ? 'Marked tried today.' : `Marked tried on ${fmtDate(tryDate.value)}.`, 'success');
+        ctx.go(here);
+      } catch (err) {
+        ctx.toast(err.message, 'error');
+      }
+    },
+  },
+  h('h3', {}, triedToday ? 'Tried today' : 'Mark tried'),
+  h('div', { class: 'grid-2' }, field('Date', tryDate)),
+  field('Note (optional)', tryNote),
+  h('div', { class: 'actions' },
+    triedToday && h('button', { type: 'button', class: 'btn btn-ghost-danger', onClick: removeTry }, 'Remove mark'),
+    h('button', { type: 'button', class: 'btn', onClick: () => (tryForm.hidden = true) }, 'Cancel'),
+    h('button', { type: 'submit', class: 'btn btn-primary' }, 'Save')));
+
+  // Opening one of the two forms closes the other.
+  const toggleForm = (form, focus) => {
+    const opening = form.hidden;
+    sendForm.hidden = true;
+    tryForm.hidden = true;
+    form.hidden = !opening;
+    if (opening) focus.focus();
+  };
+
+  // Your tries and sends on it, newest first, with their notes.
+  const history = state.me && route.my_history.length > 0 && h('section', { class: 'my-history' },
+    h('h2', {}, `Your sessions (${route.my_history.length})`),
+    h('ol', {}, route.my_history.map((x) => h('li', {},
+      h('div', { class: 'my-history-head' },
+        h('span', { class: `badge ${x.kind === 'send' ? 'sent-tag' : 'tried-tag'}` }, x.kind === 'send' ? 'Sent' : 'Tried'),
+        h('span', { class: 'muted' }, fmtDate(x.date))),
+      x.note && h('p', { class: 'my-history-note' }, x.note)))));
 
   const deleteRoute = async () => {
     const extra = route.parent_id ? '' : variationCount ? ` and its ${variationCount} variation(s)` : '';
@@ -306,7 +376,9 @@ export async function render(root, ctx, { routeId, circuitId = null }) {
     h('div', { class: 'route-kicker' }, route.parent_id ? `Variation of ${base.name}` : 'Original problem'),
     h('h1', { class: 'route-heading' }, route.name,
       route.sent_by_me && sentMark(26)),
-    field(variationCount ? `Variations (${variationCount})${variationsSent ? ` · ${variationsSent} sent` : ''}` : 'Variations', familySelect),
+    h('div', { class: 'field' },
+      h('span', { class: 'field-label' }, variationCount ? `Variations (${variationCount})${variationsSent ? ` · ${variationsSent} sent` : ''}` : 'Variations'),
+      familyList),
     h('dl', { class: 'meta' },
       h('dt', {}, 'Grade'), h('dd', {}, gradePips(route.grade)),
       h('dt', {}, 'Setter'), h('dd', {}, route.setter_name || '—'),
@@ -330,11 +402,13 @@ export async function render(root, ctx, { routeId, circuitId = null }) {
       h('button', {
         type: 'button', class: 'btn btn-primary', disabled: !route.possible,
         title: route.possible ? '' : 'This climb uses a removed hold',
-        onClick: () => {
-          sendForm.hidden = !sendForm.hidden;
-          if (!sendForm.hidden) comment.focus();
-        },
+        onClick: () => toggleForm(sendForm, comment),
       }, route.sent_by_me ? 'Log repeat' : 'Log send'),
+      h('button', {
+        type: 'button', class: `btn${triedToday ? ' tried-today' : ''}`, disabled: !route.possible,
+        title: route.possible ? 'Tried it today, sent or not' : 'This climb uses a removed hold',
+        onClick: () => toggleForm(tryForm, tryNote),
+      }, triedToday ? [icon('check', { size: 15 }), 'Tried today'] : 'Mark tried'),
       h('button', { type: 'button', class: 'btn', onClick: () => ctx.go(`#/edit/${route.id}`) }, 'Edit'),
       h('button', { type: 'button', class: 'btn', onClick: chooseCircuits }, icon('plus', { size: 15 }), 'Add to circuit'),
       unsent && h('button', {
@@ -343,6 +417,8 @@ export async function render(root, ctx, { routeId, circuitId = null }) {
       }, 'Move to drafts'),
       h('button', { type: 'button', class: 'btn btn-ghost-danger', onClick: deleteRoute }, 'Delete')),
     sendForm,
+    tryForm,
+    history,
     h('section', { class: 'ascents' },
       h('h2', {}, `Ascents (${route.ascents.length})`),
       route.ascents.length

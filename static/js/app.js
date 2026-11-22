@@ -10,21 +10,37 @@ import * as holdsView from './views/holds.js';
 import * as circuits from './views/circuits.js';
 import * as stats from './views/stats.js';
 import * as drafts from './views/drafts.js';
+import * as outdoor from './views/outdoor.js';
+import * as workout from './views/workout.js';
+import * as fingers from './views/fingers.js';
 
 const ME_KEY = 'homewall.me';
 const PREFS_KEY = 'homewall.filters.v1';
 const VIEWS = {
   climbs, legacy: climbs, route: routeDetail, editor, logbook, holds: holdsView,
   circuits, circuit: { render: circuits.renderDetail }, stats, drafts,
+  outdoors: { render: outdoor.renderOutdoors }, outdoor: { render: outdoor.renderSession },
+  outdoorClimb: { render: outdoor.renderClimb },
+  workout, workoutExercises: { render: workout.renderExercises }, exercise: { render: workout.renderExercise },
+  fingers,
 };
 const NAV_FOR_VIEW = {
   climbs: 'climbs', legacy: 'climbs', route: 'climbs', editor: 'editor', logbook: 'logbook', holds: 'holds',
   circuits: 'circuits', circuit: 'circuits', stats: 'stats', drafts: 'climbs',
+  outdoors: 'outdoors', outdoor: 'outdoors', outdoorClimb: 'outdoors',
+  workout: 'workout', workoutExercises: 'workout', exercise: 'workout',
+  fingers: 'logbook',
 };
+// The admin's alone (auth.py); anyone else is sent to the Logbook.
+const ADMIN_VIEWS = new Set(['outdoors', 'outdoor', 'outdoorClimb', 'workout', 'workoutExercises', 'exercise', 'fingers']);
 // Views whose controls stay put while only their list scrolls; on phones the
 // climb lists also pin the board above them.
-const LIST_VIEWS = new Set(['climbs', 'legacy', 'drafts', 'logbook', 'circuits', 'circuit', 'stats']);
+const LIST_VIEWS = new Set(['climbs', 'legacy', 'drafts', 'logbook', 'outdoors', 'circuits', 'circuit', 'stats']);
 const PINNED_BOARD_VIEWS = new Set(['climbs', 'legacy', 'drafts']);
+// Views that show a calendar (calendar.js) in the side pane, where the wall would be.
+const CALENDAR_VIEWS = new Set(['logbook', 'workout', 'workoutExercises', 'exercise', 'fingers']);
+// Views with neither the wall nor a calendar: the panel alone, centered.
+const SOLO_VIEWS = new Set(['outdoors', 'outdoor', 'outdoorClimb']);
 // Phones have no Wall tab (app.css): holds are added and removed on a computer.
 const PHONE = window.matchMedia('(max-width: 900px)');
 
@@ -34,6 +50,8 @@ const state = {
   spec: null,
   climbers: [],
   me: null,
+  admin: false,         // logged in as the admin on this device (auth.py)
+  adminId: null,        // the admin's climber id, if there is an admin
   holds: [],
   holdById: new Map(),
   holdNames: null,
@@ -54,9 +72,11 @@ const state = {
   lastDraftId: null,    // and for the draft just saved
   climbSequence: null,  // { legacy, ids } of the problems last listed, for swiping between them
   logOpenDays: {},      // Logbook days opened or closed by hand: { 'YYYY-MM-DD': open }
+  calendarMonth: null,  // 'YYYY-MM' the calendars last showed
 };
 
 const panel = document.getElementById('panel');
+const sidePane = document.getElementById('side-pane');
 const climberSelect = document.getElementById('climber-select');
 const holdReadout = document.getElementById('hold-readout');
 const boardEl = document.getElementById('board');
@@ -149,11 +169,24 @@ async function refreshClimbers() {
   renderClimberSelect();
 }
 
+// Being the admin takes their password; anyone else is a choice away.
+function canBe(id) {
+  return state.climbers.some((c) => c.id === id) && (id !== state.adminId || state.admin);
+}
+
+function setSession(session) {
+  state.admin = session.admin;
+  state.adminId = session.admin_climber_id;
+  document.body.classList.toggle('admin', state.admin);
+  for (const tab of document.querySelectorAll('.tabs a[data-nav="outdoors"], .tabs a[data-nav="workout"]')) tab.hidden = !state.admin;
+}
+
 function renderClimberSelect() {
   climberSelect.replaceChildren(
     h('option', { value: '' }, state.me ? '— nobody —' : 'Choose climber…'),
-    ...state.climbers.map((c) => h('option', { value: c.id }, c.name)),
+    ...state.climbers.map((c) => h('option', { value: c.id }, c.id === state.adminId && !state.admin ? `${c.name} — log in…` : c.name)),
     h('option', { value: '__add' }, '+ Add climber…'),
+    state.admin && h('option', { value: '__logout' }, `Log out ${state.climbers.find((c) => c.id === state.adminId)?.name || ''}`.trim()),
   );
   climberSelect.value = state.me ? String(state.me) : '';
   // The chip's avatar shows the climber's initial ("?" via CSS when nobody is chosen).
@@ -181,6 +214,36 @@ async function addClimber() {
   }
 }
 
+// Asks for the admin's password until it's right or cancelled; true once logged in.
+async function logIn() {
+  const name = state.climbers.find((c) => c.id === state.adminId)?.name || 'the admin';
+  for (;;) {
+    const password = await promptDialog(`Log in as ${name}`, 'Password', '', { type: 'password', confirmLabel: 'Log in' });
+    if (password == null) return false;
+    try {
+      setSession(await api.login(password));
+      return true;
+    } catch (err) {
+      toast(err.message, 'error');
+    }
+  }
+}
+
+async function logOut() {
+  try {
+    setSession(await api.logout());
+  } catch (err) {
+    toast(err.message, 'error');
+    return;
+  }
+  if (state.me === state.adminId) setMe(null);
+  else {
+    renderClimberSelect();
+    render();
+  }
+  if (/^#\/(workout|outdoor)/.test(location.hash)) location.hash = '#/logbook';
+}
+
 climberSelect.addEventListener('change', async () => {
   if (climberSelect.value === '__add') {
     const climber = await addClimber();
@@ -188,7 +251,34 @@ climberSelect.addEventListener('change', async () => {
     else renderClimberSelect();
     return;
   }
-  setMe(Number(climberSelect.value) || null);
+  if (climberSelect.value === '__logout') {
+    await logOut();
+    return;
+  }
+  const id = Number(climberSelect.value) || null;
+  if (id && id === state.adminId && !state.admin && !(await logIn())) {
+    renderClimberSelect();
+    return;
+  }
+  setMe(id);
+});
+
+// A request turned away for want of the admin login: this device's login has
+// lapsed (or a new password was set), so check the session and redraw.
+window.addEventListener('homewall:unauthorized', async () => {
+  const wasAdmin = state.admin;
+  try {
+    setSession(await api.session());
+  } catch {
+    return;
+  }
+  if (state.admin === wasAdmin) return;
+  if (!canBe(state.me)) {
+    state.me = null;
+    saveMe(null);
+  }
+  renderClimberSelect();
+  render();
 });
 
 // Shared context handed to every view.
@@ -213,6 +303,7 @@ const ctx = {
   refreshVolumes,
   refreshColors,
   boardEl,
+  sidePane,
   // Views call this before acting on behalf of "me"; nudges the user to pick someone.
   requireMe() {
     if (state.me) return state.me;
@@ -240,7 +331,23 @@ function parseHash() {
       // ?draft= picks up a saved draft.
       return { view: 'editor', params: { parentId: Number(params.get('parent')) || null, draftId: Number(params.get('draft')) || null } };
     case 'logbook':
-      return { view: 'logbook', params: {} };
+      // ?day= opens that day, as a day picked on the calendar.
+      return { view: 'logbook', params: { day: params.get('day') } };
+    case 'outdoors':
+    case 'outdoor-climbs':   // an old link to the climbs list
+      return { view: 'outdoors', params: { tab: id === 'sent' ? 'sent' : 'progress' } };
+    case 'outdoor':
+      return { view: 'outdoor', params: { sessionId: id === 'new' ? null : Number(id) || null, date: params.get('date') } };
+    case 'outdoor-climb':
+      return { view: 'outdoorClimb', params: { climbId: Number(id) } };
+    case 'workout':
+      // ?date= is the day to show (today by default).
+      return id === 'exercises' ? { view: 'workoutExercises', params: {} } : { view: 'workout', params: { date: params.get('date') } };
+    case 'exercise':
+      return { view: 'exercise', params: { exerciseId: Number(id) } };
+    case 'fingers':
+      // ?date= is the day (today by default); ?phase= start or end.
+      return { view: 'fingers', params: { date: params.get('date'), phase: params.get('phase') } };
     case 'legacy':
       return { view: 'legacy', params: { legacy: true } };
     case 'drafts':
@@ -260,6 +367,10 @@ async function render() {
     location.replace('#/climbs');   // an old link to the Wall tab
     return;
   }
+  if (ADMIN_VIEWS.has(view) && !state.admin) {
+    location.replace('#/logbook');
+    return;
+  }
   current?.destroy?.();
   current = null;
   // From one climb to the next (or the same one, after logging a send), the
@@ -272,6 +383,10 @@ async function render() {
 
   panel.classList.toggle('panel-list', LIST_VIEWS.has(view));
   document.body.classList.toggle('list-mode', PINNED_BOARD_VIEWS.has(view));
+  document.body.classList.toggle('calendar-mode', CALENDAR_VIEWS.has(view));
+  document.body.classList.toggle('solo-mode', SOLO_VIEWS.has(view));
+  sidePane.hidden = !CALENDAR_VIEWS.has(view);
+  sidePane.replaceChildren();
   // Start each page at the top, so on phones the board is in view.
   window.scrollTo(0, 0);
 
@@ -303,15 +418,16 @@ async function render() {
 async function init() {
   // The hold images are sized for this screen and the board, so the holds wait for the board.
   const loadSpec = api.board();
-  const [spec, holds, climbers, volumes, colors] = await Promise.all([
-    loadSpec, loadSpec.then((s) => api.holds(imagePpi(s))), api.climbers(), api.volumes(), api.colors()]);
+  const [spec, holds, climbers, volumes, colors, session] = await Promise.all([
+    loadSpec, loadSpec.then((s) => api.holds(imagePpi(s))), api.climbers(), api.volumes(), api.colors(), api.session()]);
   state.spec = spec;
   setHolds(holds);
   state.climbers = climbers;
   state.volumes = volumes;
   state.colors = colors;
+  setSession(session);
   state.me = readMe();
-  if (!climbers.some((c) => c.id === state.me)) state.me = null;
+  if (!canBe(state.me)) state.me = null;
   loadPrefs();   // after the holds, so a saved hold filter can be checked
   renderClimberSelect();
 
