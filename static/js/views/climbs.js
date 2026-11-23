@@ -1,4 +1,4 @@
-import { GRADES, PHONE, append, fmtDate, gradeLabel, gradePips, h, icon, plural, sentMark, trackListScroll } from '../ui.js';
+import { GRADES, PHONE, append, fmtDate, gradeLabel, gradePips, gradeV, h, icon, plural, sentMark, trackListScroll } from '../ui.js';
 import { enableSheet } from '../sheet.js';
 import { consumeSwipe, enableSwipe, settleSwipe } from '../swipe.js';
 import { prefetchRoute } from './routeDetail.js';
@@ -122,7 +122,7 @@ export async function render(root, ctx, { legacy = false } = {}) {
       ...GRADES.map((g) => chip(gradeLabel(g), f.grades.includes(g), () => {
         f.grades = f.grades.includes(g) ? f.grades.filter((x) => x !== g) : [...f.grades, g];
         filtersChanged();
-      }, { class: `grade-${g}` })),
+      }, { class: `grade-${g}`, attrs: { title: gradeV(g) } })),
       chip('Not sent by me', f.hideSent && !!state.me, () => {
         f.hideSent = !f.hideSent;
         filtersChanged();

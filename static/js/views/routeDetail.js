@@ -1,5 +1,5 @@
 import {
-  ROLES, ROLE_LABELS, append, celebrate, climberOptions, confirmDialog, dialog, faBadge, field, fmtDate, gradePips, h, icon, plural, roleDot,
+  ROLES, ROLE_LABELS, append, celebrate, climberOptions, confirmDialog, dialog, faBadge, field, fmtDate, gradePips, gradeV, h, icon, plural, roleDot,
   sentMark, today,
 } from '../ui.js';
 import { CIRCUIT_NAME_MAX, listQuery } from './shared.js';
@@ -380,7 +380,7 @@ export async function render(root, ctx, { routeId, circuitId = null }) {
       h('span', { class: 'field-label' }, variationCount ? `Variations (${variationCount})${variationsSent ? ` · ${variationsSent} sent` : ''}` : 'Variations'),
       familyList),
     h('dl', { class: 'meta' },
-      h('dt', {}, 'Grade'), h('dd', {}, gradePips(route.grade)),
+      h('dt', {}, 'Grade'), h('dd', {}, gradePips(route.grade), h('span', { class: 'grade-v' }, ` · ${gradeV(route.grade)}`)),
       h('dt', {}, 'Setter'), h('dd', {}, route.setter_name || '—'),
       h('dt', {}, 'Set on'), h('dd', {}, fmtDate(route.set_date)),
       h('dt', {}, 'First ascent'), h('dd', {}, route.fa_name

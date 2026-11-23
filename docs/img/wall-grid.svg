@@ -1,6 +1,16 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1090 704" width="1090" height="704" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" role="img" aria-label="The wall's t-nut grid: columns A to AN from right to left, rows 1 to 39 from top to bottom, and the footboard below with columns A prime to O prime and rows 40 and 41.">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1150 830" width="1150" height="830" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" role="img" aria-label="The wall to scale: the main panel's t-nut grid, columns A to AN from right to left and rows 1 to 39 from top to bottom; the footboard below with columns A prime to O prime and rows 40 and 41; and the side panels and ceiling, which have no t-nuts.">
 <rect width="100%" height="100%" rx="18" fill="#0f1512"/>
 <defs><pattern id="tnuts" patternUnits="userSpaceOnUse" x="58.00" y="83.50" width="13.20" height="13.20"><circle cx="6.60" cy="6.60" r="1.25" fill="#050706"/></pattern><marker id="arr" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#FFE14D"/></marker><marker id="tick" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M5 0V10" stroke="#f0f6ef" stroke-width="1.6"/></marker></defs>
+<g transform="translate(44 110)">
+<!-- the ceiling and the side panels: no t-nuts -->
+<rect x="58" y="-5.6" width="528.0" height="79.2" rx="3" fill="#132d25" stroke="#2f5a4b" stroke-width="1.5"/>
+<g stroke="#2f5a4b" stroke-width="0.8" stroke-dasharray="2 3"><line x1="64.6" y1="-3.0" x2="64.6" y2="71.0"/><line x1="77.8" y1="-3.0" x2="77.8" y2="71.0"/><line x1="91.0" y1="-3.0" x2="91.0" y2="71.0"/><line x1="104.2" y1="-3.0" x2="104.2" y2="71.0"/><line x1="117.4" y1="-3.0" x2="117.4" y2="71.0"/><line x1="130.6" y1="-3.0" x2="130.6" y2="71.0"/><line x1="143.8" y1="-3.0" x2="143.8" y2="71.0"/><line x1="157.0" y1="-3.0" x2="157.0" y2="71.0"/><line x1="170.2" y1="-3.0" x2="170.2" y2="71.0"/><line x1="183.4" y1="-3.0" x2="183.4" y2="71.0"/><line x1="196.6" y1="-3.0" x2="196.6" y2="71.0"/><line x1="209.8" y1="-3.0" x2="209.8" y2="71.0"/><line x1="223.0" y1="-3.0" x2="223.0" y2="71.0"/><line x1="236.2" y1="-3.0" x2="236.2" y2="71.0"/><line x1="249.4" y1="-3.0" x2="249.4" y2="71.0"/><line x1="262.6" y1="-3.0" x2="262.6" y2="71.0"/><line x1="275.8" y1="-3.0" x2="275.8" y2="71.0"/><line x1="289.0" y1="-3.0" x2="289.0" y2="71.0"/><line x1="302.2" y1="-3.0" x2="302.2" y2="71.0"/><line x1="315.4" y1="-3.0" x2="315.4" y2="71.0"/><line x1="328.6" y1="-3.0" x2="328.6" y2="71.0"/><line x1="341.8" y1="-3.0" x2="341.8" y2="71.0"/><line x1="355.0" y1="-3.0" x2="355.0" y2="71.0"/><line x1="368.2" y1="-3.0" x2="368.2" y2="71.0"/><line x1="381.4" y1="-3.0" x2="381.4" y2="71.0"/><line x1="394.6" y1="-3.0" x2="394.6" y2="71.0"/><line x1="407.8" y1="-3.0" x2="407.8" y2="71.0"/><line x1="421.0" y1="-3.0" x2="421.0" y2="71.0"/><line x1="434.2" y1="-3.0" x2="434.2" y2="71.0"/><line x1="447.4" y1="-3.0" x2="447.4" y2="71.0"/><line x1="460.6" y1="-3.0" x2="460.6" y2="71.0"/><line x1="473.8" y1="-3.0" x2="473.8" y2="71.0"/><line x1="487.0" y1="-3.0" x2="487.0" y2="71.0"/><line x1="500.2" y1="-3.0" x2="500.2" y2="71.0"/><line x1="513.4" y1="-3.0" x2="513.4" y2="71.0"/><line x1="526.6" y1="-3.0" x2="526.6" y2="71.0"/><line x1="539.8" y1="-3.0" x2="539.8" y2="71.0"/><line x1="553.0" y1="-3.0" x2="553.0" y2="71.0"/><line x1="566.2" y1="-3.0" x2="566.2" y2="71.0"/><line x1="579.4" y1="-3.0" x2="579.4" y2="71.0"/></g>
+<rect x="18.4" y="78" width="35.2" height="522.5" rx="3" fill="#132d25" stroke="#2f5a4b" stroke-width="1.5"/>
+<rect x="590.4" y="78" width="35.2" height="522.5" rx="3" fill="#132d25" stroke="#2f5a4b" stroke-width="1.5"/>
+<rect x="182" y="23" width="280" height="26" rx="8" fill="#0f1512" opacity="0.85"/>
+<text x="322.0" y="40.5" font-size="12.5" fill="#cddacf" text-anchor="middle" font-weight="600" >Ceiling: holds take the column they're under</text>
+<text x="36.0" y="339.2" font-size="12" fill="#9cb2a4" text-anchor="middle" font-weight="600" transform="rotate(-90 36.0 339.2)">Left panel: L names</text>
+<text x="608.0" y="339.2" font-size="12" fill="#9cb2a4" text-anchor="middle" font-weight="600" transform="rotate(90 608.0 339.2)">Right panel: R names</text>
 <rect x="58" y="78" width="528.0" height="522.5" rx="3" fill="#132d25" stroke="#2f5a4b" stroke-width="1.5"/>
 <rect x="58" y="604.9" width="528.0" height="35.2" rx="3" fill="#132d25" stroke="#2f5a4b" stroke-width="1.5"/>
 <rect x="58" y="83.50" width="528.0" height="514.80" fill="url(#tnuts)"/>
@@ -34,24 +44,24 @@
 <circle cx="110.8" cy="629.1" r="2" fill="#050706"/>
 <circle cx="75.6" cy="615.9" r="2" fill="#050706"/>
 <circle cx="75.6" cy="629.1" r="2" fill="#050706"/>
-<text x="579.4" y="70.0" font-size="12" fill="#b8c7bd" text-anchor="middle" font-weight="600" >A</text>
-<text x="526.6" y="70.0" font-size="12" fill="#b8c7bd" text-anchor="middle" font-weight="600" >E</text>
-<text x="460.6" y="70.0" font-size="12" fill="#b8c7bd" text-anchor="middle" font-weight="600" >J</text>
-<text x="394.6" y="70.0" font-size="12" fill="#b8c7bd" text-anchor="middle" font-weight="600" >O</text>
-<text x="328.6" y="70.0" font-size="12" fill="#b8c7bd" text-anchor="middle" font-weight="600" >T</text>
-<text x="262.6" y="70.0" font-size="12" fill="#b8c7bd" text-anchor="middle" font-weight="600" >Y</text>
-<text x="196.6" y="70.0" font-size="12" fill="#b8c7bd" text-anchor="middle" font-weight="600" >AD</text>
-<text x="130.6" y="70.0" font-size="12" fill="#b8c7bd" text-anchor="middle" font-weight="600" >AI</text>
-<text x="64.6" y="70.0" font-size="12" fill="#b8c7bd" text-anchor="middle" font-weight="600" >AN</text>
-<text x="594.0" y="94.1" font-size="11" fill="#b8c7bd" text-anchor="start" font-weight="600" >1</text>
-<text x="594.0" y="146.9" font-size="11" fill="#b8c7bd" text-anchor="start" font-weight="600" >5</text>
-<text x="594.0" y="212.9" font-size="11" fill="#b8c7bd" text-anchor="start" font-weight="600" >10</text>
-<text x="594.0" y="278.9" font-size="11" fill="#b8c7bd" text-anchor="start" font-weight="600" >15</text>
-<text x="594.0" y="344.9" font-size="11" fill="#b8c7bd" text-anchor="start" font-weight="600" >20</text>
-<text x="594.0" y="410.9" font-size="11" fill="#b8c7bd" text-anchor="start" font-weight="600" >25</text>
-<text x="594.0" y="476.9" font-size="11" fill="#b8c7bd" text-anchor="start" font-weight="600" >30</text>
-<text x="594.0" y="542.9" font-size="11" fill="#b8c7bd" text-anchor="start" font-weight="600" >35</text>
-<text x="594.0" y="595.7" font-size="11" fill="#b8c7bd" text-anchor="start" font-weight="600" >39</text>
+<text x="579.4" y="-14.0" font-size="12" fill="#b8c7bd" text-anchor="middle" font-weight="600" >A</text>
+<text x="526.6" y="-14.0" font-size="12" fill="#b8c7bd" text-anchor="middle" font-weight="600" >E</text>
+<text x="460.6" y="-14.0" font-size="12" fill="#b8c7bd" text-anchor="middle" font-weight="600" >J</text>
+<text x="394.6" y="-14.0" font-size="12" fill="#b8c7bd" text-anchor="middle" font-weight="600" >O</text>
+<text x="328.6" y="-14.0" font-size="12" fill="#b8c7bd" text-anchor="middle" font-weight="600" >T</text>
+<text x="262.6" y="-14.0" font-size="12" fill="#b8c7bd" text-anchor="middle" font-weight="600" >Y</text>
+<text x="196.6" y="-14.0" font-size="12" fill="#b8c7bd" text-anchor="middle" font-weight="600" >AD</text>
+<text x="130.6" y="-14.0" font-size="12" fill="#b8c7bd" text-anchor="middle" font-weight="600" >AI</text>
+<text x="64.6" y="-14.0" font-size="12" fill="#b8c7bd" text-anchor="middle" font-weight="600" >AN</text>
+<text x="632.0" y="94.1" font-size="11" fill="#b8c7bd" text-anchor="start" font-weight="600" >1</text>
+<text x="632.0" y="146.9" font-size="11" fill="#b8c7bd" text-anchor="start" font-weight="600" >5</text>
+<text x="632.0" y="212.9" font-size="11" fill="#b8c7bd" text-anchor="start" font-weight="600" >10</text>
+<text x="632.0" y="278.9" font-size="11" fill="#b8c7bd" text-anchor="start" font-weight="600" >15</text>
+<text x="632.0" y="344.9" font-size="11" fill="#b8c7bd" text-anchor="start" font-weight="600" >20</text>
+<text x="632.0" y="410.9" font-size="11" fill="#b8c7bd" text-anchor="start" font-weight="600" >25</text>
+<text x="632.0" y="476.9" font-size="11" fill="#b8c7bd" text-anchor="start" font-weight="600" >30</text>
+<text x="632.0" y="542.9" font-size="11" fill="#b8c7bd" text-anchor="start" font-weight="600" >35</text>
+<text x="632.0" y="595.7" font-size="11" fill="#b8c7bd" text-anchor="start" font-weight="600" >39</text>
 <text x="568.4" y="656.1" font-size="11" fill="#b8c7bd" text-anchor="middle" font-weight="600" >A′</text>
 <text x="533.2" y="656.1" font-size="11" fill="#b8c7bd" text-anchor="middle" font-weight="600" >B′</text>
 <text x="498.0" y="656.1" font-size="11" fill="#b8c7bd" text-anchor="middle" font-weight="600" >C′</text>
@@ -67,12 +77,12 @@
 <text x="146.0" y="656.1" font-size="11" fill="#b8c7bd" text-anchor="middle" font-weight="600" >M′</text>
 <text x="110.8" y="656.1" font-size="11" fill="#b8c7bd" text-anchor="middle" font-weight="600" >N′</text>
 <text x="75.6" y="656.1" font-size="11" fill="#b8c7bd" text-anchor="middle" font-weight="600" >O′</text>
-<text x="594.0" y="619.9" font-size="11" fill="#b8c7bd" text-anchor="start" font-weight="600" >40</text>
-<text x="594.0" y="633.1" font-size="11" fill="#b8c7bd" text-anchor="start" font-weight="600" >41</text>
-<line x1="582.0" y1="44" x2="62" y2="44" stroke="#FFE14D" stroke-width="2" marker-end="url(#arr)"/>
-<text x="322.0" y="36.0" font-size="13" fill="#f0f6ef" text-anchor="middle" font-weight="600" >columns A … Z, AA … AN, lettered right → left</text>
-<line x1="622.0" y1="82" x2="622.0" y2="596.5" stroke="#FFE14D" stroke-width="2" marker-end="url(#arr)"/>
-<text x="636.0" y="339.2" font-size="13" fill="#f0f6ef" text-anchor="middle" font-weight="600" transform="rotate(90 636.0 339.2)">rows 1 … 39, numbered top → bottom</text>
+<text x="632.0" y="619.9" font-size="11" fill="#b8c7bd" text-anchor="start" font-weight="600" >40</text>
+<text x="632.0" y="633.1" font-size="11" fill="#b8c7bd" text-anchor="start" font-weight="600" >41</text>
+<line x1="582.0" y1="-40" x2="62" y2="-40" stroke="#FFE14D" stroke-width="2" marker-end="url(#arr)"/>
+<text x="322.0" y="-48.0" font-size="13" fill="#f0f6ef" text-anchor="middle" font-weight="600" >columns A … Z, AA … AN, lettered right → left</text>
+<line x1="666.0" y1="82" x2="666.0" y2="596.5" stroke="#FFE14D" stroke-width="2" marker-end="url(#arr)"/>
+<text x="680.0" y="339.2" font-size="13" fill="#f0f6ef" text-anchor="middle" font-weight="600" transform="rotate(90 680.0 339.2)">rows 1 … 39, numbered top → bottom</text>
 <text x="322.0" y="680.1" font-size="12.5" fill="#9cb2a4" text-anchor="middle" font-weight="400" >Footboard: t-nuts 8" apart, columns A′ … O′ (right → left), rows 40 and 41</text>
 <circle cx="579.4" cy="90.1" r="5" fill="none" stroke="#FFE14D" stroke-width="2"/>
 <line x1="575.4" y1="93.1" x2="535.4" y2="138.1" stroke="#FFE14D" stroke-width="1.2"/>
@@ -96,6 +106,8 @@
 <text x="273.0" y="246.7" font-size="12.5" fill="#f0f6ef" text-anchor="start" font-weight="700" >near AB9 → “Biscuit”</text>
 <text x="273.0" y="262.7" font-size="11" fill="#9cb2a4" text-anchor="start" font-weight="400" >name starts with the 2nd letter</text>
 <rect x="535.4" y="78.0" width="50.6" height="44.0" fill="none" stroke="#f0f6ef" stroke-width="1.2" stroke-dasharray="3 2"/>
+</g>
+<g transform="translate(60 60)">
 <clipPath id="ic"><rect x="700" y="112" width="276.0" height="240.0"/></clipPath>
 <rect x="700" y="112" width="276.0" height="240.0" fill="#132d25" stroke="#2f5a4b" stroke-width="1.5"/>
 <path d="M700 112H976.0V352.0" fill="none" stroke="#f0f6ef" stroke-width="2.5"/>
@@ -143,4 +155,5 @@
 <text x="700.0" y="380.0" font-size="14" fill="#f0f6ef" text-anchor="start" font-weight="700" >Top-right corner, enlarged to scale</text>
 <text x="700.0" y="402.0" font-size="13" fill="#9cb2a4" text-anchor="start" font-weight="400" >A1 is the first t-nut. Holds can sit anywhere;</text>
 <text x="700.0" y="420.0" font-size="13" fill="#9cb2a4" text-anchor="start" font-weight="400" >each one records its nearest t-nut.</text>
+</g>
 </svg>

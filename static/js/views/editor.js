@@ -1,6 +1,6 @@
 import { randomName } from '../names.js';
 import {
-  GRADES, ROLES, ROLE_LABELS, climberOptions, confirmDialog, field, fmtDate, gradePips, h, icon, roleDot, today,
+  GRADES, ROLES, ROLE_LABELS, climberOptions, confirmDialog, field, fmtDate, gradePips, gradeV, h, icon, roleDot, today,
 } from '../ui.js';
 
 const PALETTE = [...ROLES, 'erase'];
@@ -98,7 +98,7 @@ export async function render(root, ctx, { routeId, parentId, draftId }) {
   const gradeGroup = h('div', { class: 'segmented', role: 'radiogroup', 'aria-label': 'Grade' },
     GRADES.map((g) => h('label', { class: `seg grade-${g}` },
       h('input', { type: 'radio', name: 'grade', value: g, checked: g === grade, onChange: () => (grade = g) }),
-      h('span', {}, gradePips(g)))));
+      h('span', { class: 'seg-grade' }, gradePips(g), h('span', { class: 'grade-v' }, gradeV(g))))));
   const setter = h('select', { class: 'input' },
     climberOptions(state.climbers, route || draft ? (route || draft).setter_id : state.me, '— unknown —'));
   const setDate = h('input', { type: 'date', class: 'input', required: true, value: (route || draft)?.set_date || today() });

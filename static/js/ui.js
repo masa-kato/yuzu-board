@@ -124,6 +124,11 @@ const GRADE_LEVEL = { warmup: 0, easy: 1, medium: 2, hard: 3, project: 4 };
 
 export const gradeLabel = (grade) => (grade === 'warmup' ? 'Warm-up' : cap(grade));
 
+// Roughly what each grade is on the V scale.
+const GRADE_V = { warmup: 'V0–V4', easy: 'V5–V6', medium: 'V7–V8', hard: 'V9–V10', project: 'V11+' };
+
+export const gradeV = (grade) => GRADE_V[grade] || '';
+
 // Warm-up's mark: a leaf sprouting from a mound of soil (animated in app.css).
 // The soil is drawn last, so the plant grows up from behind it and sinks back.
 function sprout() {
@@ -141,11 +146,13 @@ function sprout() {
 export function gradePips(grade, { label = true } = {}) {
   const level = GRADE_LEVEL[grade] || 0;
   const name = gradeLabel(grade);
+  const v = gradeV(grade);
+  const full = `Grade: ${name}${v ? ` (${v})` : ''}`;
   const pips = grade === 'warmup'
     ? h('span', { class: 'pips sprout-pips', 'aria-hidden': 'true' }, sprout())
     : h('span', { class: 'pips', 'aria-hidden': 'true' },
       [1, 2, 3, 4].map((i) => h('span', { class: `pip${i <= level ? ' on' : ''}${grade === 'project' && i === 4 ? ' project' : ''}` })));
-  return h('span', { class: `grade grade-${grade}`, title: `Grade: ${name}`, ...(label ? {} : { role: 'img', 'aria-label': `Grade: ${name}` }) },
+  return h('span', { class: `grade grade-${grade}`, title: full, ...(label ? {} : { role: 'img', 'aria-label': full }) },
     pips, label && h('span', { class: 'grade-label' }, name));
 }
 
