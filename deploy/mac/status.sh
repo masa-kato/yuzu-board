@@ -21,4 +21,4 @@ else
   echo "Last sync:      never"
 fi
 newest=$(/usr/bin/python3 "$REPO/backup.py" latest "$REPLICA/backups")
-echo "Newest copy:    ${newest:+$(basename "$newest")}${newest:-none} ($(ls "$REPLICA/backups" 2>/dev/null | wc -l | tr -d ' ') snapshots on this Mac)"
+echo "Newest copy:    $(basename "${newest:-none}") ($(ls "$REPLICA/backups" 2>/dev/null | wc -l | tr -d ' ') snapshots on this Mac)"
