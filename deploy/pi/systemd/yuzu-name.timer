@@ -1,0 +1,12 @@
+# Soon after boot, when avahi gets it wrong, then every minute.
+
+[Unit]
+Description=Keep the Yuzu Board's .local name every minute
+
+[Timer]
+OnBootSec=30s
+OnUnitActiveSec=1min
+AccuracySec=5s
+
+[Install]
+WantedBy=timers.target

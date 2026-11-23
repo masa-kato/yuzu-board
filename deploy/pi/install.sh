@@ -38,7 +38,7 @@ mkdir -p "$UNITS"
 cp deploy/pi/systemd/*.service deploy/pi/systemd/*.timer "$UNITS/"
 systemctl --user daemon-reload
 systemctl --user enable --quiet yuzu-board.service
-systemctl --user enable --quiet --now yuzu-update.timer yuzu-backup.timer
+systemctl --user enable --quiet --now yuzu-update.timer yuzu-backup.timer yuzu-name.timer
 if [[ -s $DATA/homewall.db ]]; then
   systemctl --user restart yuzu-board.service
   echo "The Yuzu Board is up: http://$(hostname).local"

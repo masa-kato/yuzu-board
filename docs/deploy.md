@@ -41,6 +41,9 @@ The services on the Pi are systemd user services, which start at boot without an
 | `yuzu-board` | The app, served by waitress on port 80 (`wsgi.py`). Restarts if it stops. |
 | `yuzu-update.timer` | A minute after boot, then every 2 minutes: `deploy/pi/update.sh` |
 | `yuzu-backup.timer` | Every 15 minutes: a snapshot, then old ones pruned (`backup.py`) |
+| `yuzu-name.timer` | Every minute: takes `yuzuberrypi.local` back if the Pi's name service moved it to `yuzuberrypi-2.local`, which it can do at boot after hearing an echo of itself (`deploy/pi/keep-name.sh`) |
+
+A deploy updates the code, not these services: after changing `deploy/pi/systemd/`, run `ssh yuzu '~/yuzu-board/deploy/pi/install.sh'` once it's live. It needs no password after the first time.
 
 Snapshots are kept by age, on the Pi and the Mac alike: every one from the last 48 hours, then the last of each day for 60 days, then the last of each month. The Mac never deletes a copy because it went from the Pi.
 
@@ -79,7 +82,7 @@ This makes `~/YuzuBoard`, a key the Pi lets read `~/yuzu-data` and nothing else 
 **What's running?** `deploy/mac/status.sh`, or on the Pi:
 
 ```sh
-systemctl --user status yuzu-board yuzu-update.timer yuzu-backup.timer
+systemctl --user status yuzu-board yuzu-update.timer yuzu-backup.timer yuzu-name.timer
 journalctl --user-unit yuzu-board -n 50       # the app
 journalctl --user-unit yuzu-update -n 50      # deploys
 ```

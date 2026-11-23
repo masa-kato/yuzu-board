@@ -1,0 +1,9 @@
+# Takes yuzuberrypi.local back if avahi renamed the Pi (deploy/pi/keep-name.sh),
+# on yuzu-name.timer.
+
+[Unit]
+Description=Keep the Yuzu Board's .local name
+
+[Service]
+Type=oneshot
+ExecStart=%h/yuzu-board/deploy/pi/keep-name.sh
