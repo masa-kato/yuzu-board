@@ -1,44 +1,19 @@
-import os
-import sys
-import tempfile
 import unittest
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-import db  # noqa: E402
-import geometry  # noqa: E402
-from app import create_app  # noqa: E402
+from support import ApiTestCase
 
 
-class CircuitApiTest(unittest.TestCase):
+class CircuitApiTest(ApiTestCase):
     def setUp(self):
-        fd, self.db_path = tempfile.mkstemp(suffix=".db")
-        os.close(fd)
-        self.client = create_app(self.db_path, tempfile.mkdtemp()).test_client()
-        conn = db.connect(self.db_path)
-        for name, col, row in [("Falcon", 5, 10), ("Kestrel", 10, 20), ("Pike", 15, 30)]:
-            x, y = geometry.tnut_xy(col, row)
-            conn.execute("INSERT INTO holds (name, x, y, tnut_col, tnut_row) VALUES (?, ?, ?, ?, ?)", (name, x, y, col, row))
-        conn.commit()
-        conn.close()
+        super().setUp()
+        self.add_holds([("Falcon", 5, 10), ("Kestrel", 10, 20), ("Pike", 15, 30)])
         self.alex = self.call("post", "/api/climbers", {"name": "Alex"})["id"]
         self.sam = self.call("post", "/api/climbers", {"name": "Sam"})["id"]
         self.slab = self.make_route("Slab", "easy", hold=1)
         self.crimp = self.make_route("Crimp", "medium", hold=2)
         self.roof = self.make_route("Roof", "hard", hold=3)
 
-    def tearDown(self):
-        os.remove(self.db_path)
-
     # helpers ---------------------------------------------------------------
-
-    def call(self, method, url, data=None, status=None):
-        res = getattr(self.client, method)(url, json=data)
-        if status is not None:
-            self.assertEqual(res.status_code, status, res.get_json())
-        else:
-            self.assertLess(res.status_code, 300, res.get_json())
-        return res.get_json()
 
     def make_route(self, name, grade, hold, parent=None):
         return self.call("post", "/api/routes", {

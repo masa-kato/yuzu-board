@@ -1,10 +1,13 @@
-"""Request helpers shared by app.py and its blueprints (auth, outdoor,
-workouts): JSON errors and the parsing of submitted values."""
+"""Request helpers shared by the blueprints (climbs, holds, logbook, circuits,
+auth, outdoor, workouts, fingers): JSON errors, the parsing of submitted
+values, and checking a submitted climber id."""
 
 import datetime
 import math
 
 from flask import abort, jsonify
+
+import db
 
 
 def error(message, status):
@@ -60,3 +63,12 @@ def text(data, key, field, max_length=None):
     if max_length and len(value) > max_length:
         bad_request("%s is too long (%d characters max)" % (field, max_length))
     return value
+
+
+def require_climber(conn, climber_id, field):
+    """`climber_id` once it's known to exist (None stays None)."""
+    if climber_id is None:
+        return None
+    if db.row(conn.execute("SELECT id FROM climbers WHERE id = ?", (climber_id,))) is None:
+        bad_request("%s refers to an unknown climber" % field)
+    return climber_id

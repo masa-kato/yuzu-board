@@ -1,8 +1,8 @@
 import {
-  ROLES, ROLE_LABELS, append, celebrate, climberOptions, confirmDialog, dialog, faBadge, field, fmtDate, gradePips, h, icon, roleDot, sentMark, today,
+  ROLES, ROLE_LABELS, append, celebrate, climberOptions, confirmDialog, dialog, faBadge, field, fmtDate, gradePips, h, icon, plural, roleDot,
+  sentMark, today,
 } from '../ui.js';
-import { NAME_MAX, plural as pluralize } from './circuits.js';
-import { listQuery } from './climbs.js';
+import { CIRCUIT_NAME_MAX, listQuery } from './shared.js';
 import { consumeSwipe, enableSwipe, settleSwipe } from '../swipe.js';
 
 // The problems the Climbs (or Legacy) list shows, in its order: as last
@@ -277,13 +277,13 @@ export async function render(root, ctx, { routeId, circuitId = null }) {
       // A climb that is no longer possible can leave circuits but not join new ones.
       box: h('input', { type: 'checkbox', checked: member.has(c.id), disabled: !route.possible && !member.has(c.id) }),
     }));
-    const newName = h('input', { type: 'text', class: 'input', placeholder: 'e.g. Tuesday warm-up', maxlength: NAME_MAX, autocomplete: 'off' });
+    const newName = h('input', { type: 'text', class: 'input', placeholder: 'e.g. Tuesday warm-up', maxlength: CIRCUIT_NAME_MAX, autocomplete: 'off' });
     const result = await dialog({
       title: `Circuits for ${route.display_name}`,
       body: h('div', { class: 'circuit-choices' },
         choices.length
           ? h('div', { class: 'choice-list' }, choices.map(({ circuit: c, box }) => h('label', { class: 'toggle choice' },
-            box, h('span', { class: 'choice-name' }, c.name), h('span', { class: 'muted small' }, pluralize(c.route_count, 'climb')))))
+            box, h('span', { class: 'choice-name' }, c.name), h('span', { class: 'muted small' }, plural(c.route_count, 'climb')))))
           : h('p', { class: 'muted' }, 'No circuits yet. Name one below to start it with this climb.'),
         route.possible
           ? field('New circuit (optional)', newName)
@@ -329,17 +329,17 @@ export async function render(root, ctx, { routeId, circuitId = null }) {
   };
 
   const removed = route.removed_holds.join(', ');
-  const plural = route.removed_holds.length > 1;
+  const several = route.removed_holds.length > 1;
   let banner = null;
   if (route.legacy) {
     banner = h('div', { class: 'banner warn' },
       h('strong', {}, 'Legacy route. '),
-      `It uses ${plural ? 'holds' : 'a hold'} that ${plural ? 'were' : 'was'} removed from the wall (${removed}), as does every variation. `,
+      `It uses ${several ? 'holds' : 'a hold'} that ${several ? 'were' : 'was'} removed from the wall (${removed}), as does every variation. `,
       'Edit it and swap in other holds to bring it back.');
   } else if (!route.possible) {
     banner = h('div', { class: 'banner warn' },
       h('strong', {}, 'Not possible. '),
-      `${plural ? 'Holds' : 'Hold'} ${removed} ${plural ? 'were' : 'was'} removed from the wall. Other variations of this problem can still be climbed.`);
+      `${several ? 'Holds' : 'Hold'} ${removed} ${several ? 'were' : 'was'} removed from the wall. Other variations of this problem can still be climbed.`);
   } else if (route.family.some((r) => !r.possible)) {
     const n = route.family.filter((r) => !r.possible).length;
     banner = h('div', { class: 'banner info' }, `Not all variations are possible — ${n} of ${route.family.length} use${n === 1 ? 's' : ''} a removed hold.`);

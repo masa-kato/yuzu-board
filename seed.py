@@ -1,7 +1,7 @@
 """Demo data: proxy holds at random t-nuts plus a handful of routes, sends and a circuit.
 
-    python seed.py            # seed an empty database
-    python seed.py --reset    # wipe homewall.db and reseed
+    python seed.py            # seed a database nobody has used yet
+    python seed.py --reset    # wipe homewall.db and the hold images, and reseed
 """
 import argparse
 import datetime
@@ -11,8 +11,9 @@ import random
 
 import db
 import geometry
+import hold_images
 import hold_names
-from app import recompute_fa
+from logbook import recompute_fa
 
 MIN_GRID_DISTANCE = 2.5   # in t-nut spacings, keeps the demo board readable
 CLIMBERS = ["Alex", "Sam", "Jordan"]
@@ -125,12 +126,26 @@ CIRCUITS = [
 ]
 
 
-def seed(db_path, reset=False):
-    if reset and os.path.exists(db_path):
-        os.remove(db_path)
+def is_blank(conn):
+    """True for a database nobody has used yet: no holds, climbers or climbs.
+    A wall cleared of every hold still has its climbers, so it never fills
+    up with demo data again."""
+    return not conn.execute(
+        "SELECT EXISTS (SELECT 1 FROM holds) OR EXISTS (SELECT 1 FROM climbers) OR EXISTS (SELECT 1 FROM routes)"
+    ).fetchone()[0]
+
+
+def seed(db_path, reset=False, upload_dir=hold_images.DEFAULT_UPLOAD_DIR):
+    """Fills a blank database with demo data; returns False, changing
+    nothing, if it isn't blank. `reset` first deletes the database and the
+    hold images in `upload_dir`, which it would leave pointing at nothing."""
+    if reset:
+        if os.path.exists(db_path):
+            os.remove(db_path)
+        hold_images.clear_uploads(upload_dir)
     conn = db.connect(db_path)
     db.init_db(conn)
-    if conn.execute("SELECT COUNT(*) FROM holds").fetchone()[0]:
+    if not is_blank(conn):
         conn.close()
         return False
 
@@ -223,10 +238,12 @@ def seed(db_path, reset=False):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--reset", action="store_true", help="delete the database first")
+    parser.add_argument("--reset", action="store_true", help="delete the database and the hold images first")
     parser.add_argument("--db", default=db.DEFAULT_DB_PATH)
+    parser.add_argument("--uploads", default=hold_images.DEFAULT_UPLOAD_DIR,
+                        help="folder of hold images that --reset clears (default: uploads/holds)")
     args = parser.parse_args()
-    if seed(args.db, reset=args.reset):
+    if seed(args.db, reset=args.reset, upload_dir=args.uploads):
         print("Seeded %s" % args.db)
     else:
-        print("Database already has holds; use --reset to start over.")
+        print("The database already has holds, climbers or climbs; use --reset to start over.")

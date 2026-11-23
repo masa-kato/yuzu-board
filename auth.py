@@ -1,9 +1,10 @@
 """The admin login. One climber can be the admin (`python app.py --set-admin
 <name>`), and choosing them in the app asks for their password, once per
-device: the login cookie lasts a year. Only the admin sees the Workout tab
-and outdoor sessions (workouts.py, outdoor.py), and only they can log sends
-and tries as themselves. Everything else stays open to everyone, as before.
-Until an admin is set, nobody needs a password."""
+device: the login cookie lasts a year. Only the admin sees the Outdoors and
+Workout tabs and the finger checks (outdoor.py, workouts.py, fingers.py),
+and only they can log sends and tries as themselves (logbook.py).
+Everything else stays open to everyone. Until an admin is set, nobody needs
+a password."""
 
 import datetime
 import functools

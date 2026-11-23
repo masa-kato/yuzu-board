@@ -3,7 +3,7 @@
 // (#/outdoor/new, #/outdoor/<id>) and a climb's page with every session on it
 // (#/outdoor-climb/<id>). No calendar here; the Logbook's shows the days out.
 
-import { confirmDialog, dialog, field, fmtDate, h, icon, sentMark, shortDate, today, trackListScroll } from '../ui.js';
+import { TOUCH, confirmDialog, dialog, field, fmtDate, h, icon, plural, sentMark, shortDate, today, trackListScroll } from '../ui.js';
 
 const NAME_MAX = 120;
 
@@ -12,10 +12,6 @@ function backLink(ctx, label, hash) {
 }
 
 const sentBadge = (sent) => h('span', { class: `badge ${sent ? 'sent-tag' : 'tried-tag'}` }, sent ? 'Sent' : 'Tried');
-
-function plural(n, word) {
-  return `${n} ${word}${n === 1 ? '' : 's'}`;
-}
 
 // A climb's earlier sessions, newest first, leaving out `skipSession`.
 function historyList(history, skipSession = null) {
@@ -30,7 +26,6 @@ function historyList(history, skipSession = null) {
 
 // ---- a field's dropdown ----------------------------------------------------------
 
-const COARSE = window.matchMedia('(pointer: coarse)');
 let comboSeq = 0;
 
 // A text field with a dropdown of suggestions: `suggest(text)` gives its rows,
@@ -148,7 +143,7 @@ function combo(input, { suggest, pick, keepOpen = false, label }) {
     open();
     // On a phone, bring the field up under the header so the list has room
     // above the keyboard.
-    if (!COARSE.matches) return;
+    if (!TOUCH.matches) return;
     setTimeout(() => {
       if (document.activeElement !== input) return;
       const header = document.querySelector('.topbar').getBoundingClientRect().bottom;

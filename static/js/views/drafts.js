@@ -1,10 +1,6 @@
 import { enableSheet } from '../sheet.js';
-import { fmtDate, gradePips, h, trackListScroll } from '../ui.js';
-import { listSwitch } from './climbs.js';
-
-function plural(n, word) {
-  return `${n} ${word}${n === 1 ? '' : 's'}`;
-}
+import { fmtDate, gradePips, h, plural, trackListScroll } from '../ui.js';
+import { listSwitch } from './shared.js';
 
 // Climbs saved with Save draft and not published yet, shared by everyone.
 // Opening one picks up the Set boulder form where it was left.

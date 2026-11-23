@@ -8,6 +8,7 @@ from flask import current_app, g
 
 import geometry
 import hold_names
+from constants import GRADES
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_DB_PATH = os.path.join(HERE, "homewall.db")
@@ -20,13 +21,16 @@ HOLD_COLUMNS = [
     ("size", "REAL NOT NULL DEFAULT 6"),
     ("rotation", "REAL NOT NULL DEFAULT 0"),
     ("color", "TEXT"),
-    ("color_opacity", "REAL NOT NULL DEFAULT 0.5"),
     ("removed_at", "TEXT"),
 ]
+# Columns no longer used, dropped from databases that still have them.
+DROPPED_COLUMNS = [
+    ("holds", "color_opacity"),   # every hold's color now shows at one opacity, set in the browser
+]
 
-# The grades a climb can have (app.py GRADES). Warm-up came later, so older
-# `routes` and `drafts` tables check for the four others (widen_grades).
-GRADE_CHECK = "CHECK (grade IN ('warmup', 'easy', 'medium', 'hard', 'project'))"
+# The grades a climb can have, as schema.sql checks them. Warm-up came later,
+# so older `routes` and `drafts` tables check for the four others (widen_grades).
+GRADE_CHECK = "CHECK (grade IN (%s))" % ", ".join("'%s'" % g for g in GRADES)
 
 # Columns added to `volumes` later.
 VOLUME_COLUMNS = [
@@ -179,11 +183,14 @@ def migrate(conn):
         kept.add(name.lower())
         conn.execute("UPDATE holds SET name = ? WHERE id = ?", (name, h["id"]))
     conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_holds_name ON holds (name COLLATE NOCASE)")
+    # Names were once unique only on the wall; idx_holds_name covers that now.
+    conn.execute("DROP INDEX IF EXISTS idx_holds_active_name")
 
-    conn.execute(
-        "CREATE UNIQUE INDEX IF NOT EXISTS idx_holds_active_name "
-        "ON holds(name COLLATE NOCASE) WHERE removed_at IS NULL"
-    )
+    # SQLite can drop a column from 3.35 on; an older one just keeps it, unused.
+    if sqlite3.sqlite_version_info >= (3, 35, 0):
+        for table, column in DROPPED_COLUMNS:
+            if column in {r["name"] for r in conn.execute("PRAGMA table_info(%s)" % table)}:
+                conn.execute("ALTER TABLE %s DROP COLUMN %s" % (table, column))
 
     # Finger scores once ran from 1 (healthy) to 10; healthy is 0 now. A 1 is
     # a score again afterwards, so the database's user_version says it's done.
@@ -204,6 +211,11 @@ def close_db(_exc=None):
     conn = g.pop("db", None)
     if conn is not None:
         conn.close()
+
+
+def in_clause(ids):
+    """The placeholders for `IN (...)`: one ? per item."""
+    return ",".join("?" * len(ids))
 
 
 def rows(cursor):

@@ -388,7 +388,7 @@ Trade-offs: like any single-chip DLP, its colours are dimmer than its white. It 
 
 ## Power and control
 
-- **PJLink** is a plain-text network protocol (TCP port 4352) that most projectors speak. With it, `app.py` can turn both projectors on when someone taps "Show on wall" and off after, say, 20 minutes without a change. Python options: [pypjlink](https://pypi.org/project/pypjlink/) (old, Python ≤3.5), its fork [pypjlink2](https://pypi.org/project/pypjlink2/1.2.2/) (adds Optoma support), [aiopjlink](https://pypi.org/project/aiopjlink/) (asyncio), or ~30 lines of socket code.
+- **PJLink** is a plain-text network protocol (TCP port 4352) that most projectors speak. With it, the app's server can turn both projectors on when someone taps "Show on wall" and off after, say, 20 minutes without a change. Python options: [pypjlink](https://pypi.org/project/pypjlink/) (old, Python ≤3.5), its fork [pypjlink2](https://pypi.org/project/pypjlink2/1.2.2/) (adds Optoma support), [aiopjlink](https://pypi.org/project/aiopjlink/) (asyncio), or ~30 lines of socket code.
 - Give each projector a fixed IP (a DHCP reservation) and set a PJLink password. RS‑232 is the fallback.
 - **Switching on and off is free:** the laser light source is rated 30,000 hours (40 years at two hours a day) and has no lamp to wear out or warm up.
 
@@ -431,7 +431,7 @@ What would be new:
 1. **A `/projector` page.** A black full-screen canvas with one half per projector. For the climb on the wall, it draws each hold's rings from `RING_BANDS` in **inches instead of screen pixels**. Rings follow the hold photo's outline (or a circle from `size`) in its role colour. Each half applies its projector's per-panel maps and brightness balancing.
 2. **"Show on wall"** on route and circuit pages, saved on the server (e.g. `POST /api/wall`). The projector page picks it up by polling or Server-Sent Events. Swiping to the next climb on a phone updates the wall.
 3. **A calibration page** (the crosshair flow above), saved in a small table, e.g. `projector_calibration(projector, surface, matrix)`, plus a "show t-nut grid" test button.
-4. **PJLink power control** in `app.py`: on with the first "Show on wall", off when idle.
+4. **PJLink power control** on the server (a new blueprint alongside the others, see [development.md](development.md)): on with the first "Show on wall", off when idle.
 
 ## Parts list and cost
 

@@ -2,11 +2,10 @@
 // forms, and the dialogs that edit the list. Holds store the hex itself, so
 // the server recolors the holds in a color when its hex changes.
 
-import { append, confirmDialog, h, icon } from './ui.js';
+import { append, confirmDialog, h, icon, plural } from './ui.js';
 
 const HEX_RE = /^#?([0-9a-f]{3}|[0-9a-f]{6})$/i;
 const NEW_COLOR = '#888888';
-const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
 // '#abc', 'ABC' or '#AABBCC' → '#aabbcc'; null if it isn't a color.
 export function normalizeHex(text) {

@@ -6,6 +6,12 @@ export { icon };
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 
+// Phones: app.css's narrow layout (the board above the page, no Wall tab, a
+// sheet for the climb lists) starts at this width.
+export const PHONE = window.matchMedia('(max-width: 900px)');
+// Touch screens, phones and tablets alike: no hover, and a finger for a pointer.
+export const TOUCH = window.matchMedia('(pointer: coarse)');
+
 // Appends children, skipping null/false (unlike Element.append, which would
 // insert them as text).
 export function append(el, children) {
@@ -107,6 +113,9 @@ export const GRADES = ['warmup', 'easy', 'medium', 'hard', 'project'];
 export const ROLES = ['start', 'hand', 'foot', 'finish'];
 export const ROLE_LABELS = { start: 'Start', hand: 'Hand', foot: 'Foot', finish: 'Finish' };
 
+// "1 hold", "3 holds".
+export const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
+
 export function cap(s) {
   return s.charAt(0).toUpperCase() + s.slice(1);
 }
@@ -171,6 +180,11 @@ export function sentMark(size = 16, { half = false } = {}) {
     // the cut face, closing the half off
     half && svg('path', { d: 'M0.9 10H19.1', stroke: '#b9860a', 'stroke-width': 1.2, 'stroke-linecap': 'round' }),
     svg('path', { d: 'M5.2 6.4A6.6 6.6 0 0 1 9 3.6', fill: 'none', stroke: '#fff', 'stroke-width': 1.1, 'stroke-linecap': 'round', opacity: 0.75 })));
+}
+
+// A number over its label, as in the Logbook's and Stats tab's totals.
+export function stat(value, label) {
+  return h('div', { class: 'stat' }, h('div', { class: 'stat-value' }, value), h('div', { class: 'stat-label' }, label));
 }
 
 export function faBadge() {
@@ -264,5 +278,7 @@ export async function promptDialog(title, label, placeholder = '', { value = '',
     body: field(label, input),
     actions: [{ value: 'cancel', label: 'Cancel' }, { value: 'ok', label: confirmLabel, class: 'btn-primary' }],
   });
-  return result === 'ok' ? input.value.trim() : null;
+  if (result !== 'ok') return null;
+  // A password is taken as typed, spaces and all, as --set-admin stores it.
+  return type === 'password' ? input.value : input.value.trim();
 }

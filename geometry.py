@@ -123,11 +123,6 @@ def panel_of(x, y):
     return None
 
 
-def on_panel(x, y):
-    """True when a point lies on one of the panels (not a gap)."""
-    return panel_of(x, y) is not None
-
-
 def tnut_free(x, y):
     """True on a panel with no t-nuts: a side panel or the ceiling."""
     return panel_of(x, y) in TNUT_FREE

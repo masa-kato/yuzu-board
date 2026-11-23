@@ -6,12 +6,13 @@
 // top, lowers it. The sheet follows the finger and settles either way when
 // let go. Touch only: with a mouse the list just scrolls.
 
-const DECIDE = 10;       // px of movement before we know which way the finger is going
+import { PHONE } from './ui.js';
+
+const DECIDE = 10;      // px of movement before we know which way the finger is going
 const COMMIT = 60;       // px that always commits
 const FLICK = 20;        // px that commits when fast enough
 const FLICK_SPEED = 0.4; // px per ms
 const EASE = 'cubic-bezier(0.2, 0.8, 0.2, 1)';
-const PHONE = window.matchMedia('(max-width: 900px)');
 
 const reducedMotion = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 

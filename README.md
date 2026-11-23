@@ -8,18 +8,52 @@ A route tracker for a home bouldering board. It draws the wall to scale and lets
 
 ## Run it
 
+It needs Python 3.9 or newer (the one that comes with macOS will do).
+
 ```sh
 python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt
 .venv/bin/python app.py
 ```
 
-Then open <http://localhost:5050>. The server listens on all interfaces, so phones on the same Wi‑Fi can use `http://<your-mac's-IP>:5050`. On the first run the database (`homewall.db`) is created and filled with demo data.
+Then open <http://localhost:5050>. The server listens on all interfaces, so phones on the same Wi‑Fi can use `http://<your-mac's-IP>:5050`. On the first run the database (`homewall.db`) is created and filled with demo data. Demo data only ever goes into a database nobody has used yet: clearing every climb and hold off the wall doesn't bring it back.
 
 ![The Mac runs app.py, which serves the app on port 5050; phones, tablets and laptops on the same Wi-Fi open http://<Mac's IP>:5050, and the data stays on the Mac](docs/img/network.svg)
 
-- Reset to fresh demo data: `.venv/bin/python seed.py --reset` (this also clears the admin login)
+- Reset to fresh demo data: `.venv/bin/python seed.py --reset`. This deletes the database, so it also clears the admin login, and deletes the uploaded hold images.
 - Run the tests: `.venv/bin/python -m unittest discover tests`
+- Working on the code: [docs/development.md](docs/development.md) maps the modules, the API and how to add a page.
+
+### Options
+
+| | |
+|---|---|
+| `--port 5050` | The port to serve on |
+| `--host 0.0.0.0` | The address to listen on. The default, `0.0.0.0`, is every network, so phones can connect; `127.0.0.1` is this Mac only |
+| `--db homewall.db` | The database file |
+| `--uploads uploads/holds` | The folder for hold images |
+| `--debug` | Restarts the server when a `.py` file changes and shows errors in full. Only this Mac can connect, since the debugger it adds runs any code it's sent; `--host` overrides that, with a warning |
+| `--set-admin NAME` | Makes NAME the admin and asks for their password, then exits (see below) |
+
+### Keeping it running
+
+To keep the server going after the terminal closes:
+
+```sh
+nohup .venv/bin/python app.py > yuzu.log 2>&1 &
+```
+
+After updating the code, restart it: find it with `lsof -i :5050`, `kill` that PID, and start it again. Pages and styles are read fresh on every reload, but changes to the Python files or `schema.sql` only take effect on a restart. A tab that says "Request failed (404)" after an update usually means the old server is still running.
+
+### Your data
+
+Everything is in two places, both kept out of git: the database `homewall.db` and the hold images in `uploads/holds/`. Back up both. (`uploads/holds/board/` only holds smaller copies of the images, which are made again when missing.) To copy the database while the server is running, use SQLite's backup, which never catches it half-written:
+
+```sh
+sqlite3 homewall.db ".backup homewall-backup.db"
+```
+
+To move to another computer, copy `homewall.db` and `uploads/holds/` into a fresh copy of the code and set it up as above. A database from an older version is updated in place on the first start.
 
 ### The admin login
 
@@ -284,21 +318,37 @@ The third switch at the top of Climbs: boulders and variations saved with **Save
 ## Layout
 
 ```
-app.py          Flask app + JSON API (FA / repeat / possible-vs-legacy logic lives here), sends and tries
-auth.py         the admin login: password, session cookie, `--set-admin`
-outdoor.py      the admin's outdoor sessions and climbs (API)
-workouts.py     the admin's workouts, exercises, and progress (API)
-fingers.py      the admin's finger checks: a score per finger at the start and end of a session (API)
-helpers.py      request helpers shared by the above: JSON errors, parsing dates and numbers
-db.py           SQLite connection helpers + in-place migration of older databases
-schema.sql      tables: climbers, holds, routes (parent_id = variation), route_holds, sends, tries, volumes, circuits, colors,
-                settings, outdoor_climbs/sessions/entries, exercises, exercise_variants, workouts, workout_exercises, workout_sets,
-                finger_checks
-geometry.py     board dimensions, t-nut labels, nearest t-nut
-hold_names.py   nouns for each letter, used to name holds
-uploads/holds/  uploaded hold PNGs, and in board/ the smaller copies the wall draws, sized for each screen (git-ignored)
-seed.py         demo holds, routes, and sends
-docs/img/       README screenshots and diagrams
-static/         index.html, css/app.css, fonts/, img/, js/ (board.js renders the SVG wall, calendar.js the month calendar, hands.js the finger-check hands, chart.js the progress charts, palette.js the color list and its dialogs, icons.js the icon set, views/ hold the panels)
-tests/          API + geometry tests (stdlib unittest)
+app.py            the Flask app (registers the blueprints below) and the command line
+climbs.py         climbs, variations and drafts; the climb list's filters and sorting; possible vs Legacy
+holds.py          holds, the color list and volumes
+hold_images.py    uploaded hold PNGs, the board's smaller copies, and the touch screens' picture of the wall
+logbook.py        climbers, sends, tries, first ascents and repeats, the calendars' days
+circuits.py       circuits
+auth.py           the admin login: password, session cookie, `--set-admin`
+outdoor.py        the admin's outdoor sessions and climbs
+workouts.py       the admin's workouts, exercises, and progress
+fingers.py        the admin's finger checks: a score per finger at the start and end of a session
+helpers.py        shared by the above: JSON errors, parsing submitted values
+constants.py      the grades and hold roles
+db.py             SQLite connection helpers + in-place migration of older databases
+schema.sql        tables: climbers, holds, routes (parent_id = variation), route_holds, drafts, draft_holds, sends, tries,
+                  volumes, circuits, colors, settings, outdoor_climbs/sessions/entries, exercises, exercise_variants,
+                  workouts, workout_exercises, workout_sets, finger_checks
+geometry.py       board dimensions, t-nut labels, nearest t-nut
+hold_names.py     nouns for each letter, used to name holds
+seed.py           demo holds, routes, and sends
+requirements.txt  Flask and Pillow
+uploads/holds/    uploaded hold PNGs, and in board/ the smaller copies the wall draws, sized for each screen (git-ignored)
+static/           index.html, css/app.css, fonts/, img/, and js/:
+  app.js            starts the app and routes #/ links to pages
+  api.js            every call to the server
+  ui.js             building elements, dialogs, toasts, dates, grades
+  board.js          the SVG wall; viewport.js its zoom and pan
+  calendar.js, chart.js, hands.js, palette.js, sheet.js, swipe.js, icons.js, names.js
+                    the month calendar, progress charts, finger-check hands, color list, phones' list sheet,
+                    swiping between climbs, the icon set, random route names
+  views/            one module per page; views/holds/ the Wall tab's tools; views/shared.js what pages share
+tests/            the server's tests (stdlib unittest); support.py has what they share
+docs/             development.md (working on the code), hold-lighting-research.md (lighting a climb's holds
+                  with projectors), img/ (README screenshots and diagrams)
 ```

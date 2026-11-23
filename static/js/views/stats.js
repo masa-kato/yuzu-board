@@ -1,5 +1,4 @@
-import { append, h, trackListScroll } from '../ui.js';
-import { stat } from './logbook.js';
+import { append, h, plural, stat, trackListScroll } from '../ui.js';
 
 // Light yellow for a hold on one climb to dark red for the most used hold
 // (ColorBrewer YlOrRd), stopping short of its near-black reds, which would
@@ -11,7 +10,6 @@ const UNUSED = '#626966';
 const POP_MS = 3000;   // how long a tapped hold's count stays up
 const POP_GAP = 8;     // px between the count and its hold, or the screen's edge
 
-const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
 const byName = (a, b) => a.name.localeCompare(b.name, undefined, { numeric: true });
 const channels = (hex) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
 

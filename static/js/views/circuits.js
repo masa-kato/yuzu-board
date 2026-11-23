@@ -1,11 +1,7 @@
-import { GRADES, append, confirmDialog, gradeLabel, gradePips, h, icon, promptDialog, sentMark, trackListScroll } from '../ui.js';
+import { GRADES, append, confirmDialog, gradeLabel, gradePips, h, icon, plural, promptDialog, sentMark, trackListScroll } from '../ui.js';
+import { CIRCUIT_NAME_MAX } from './shared.js';
 
 // Circuits: named, ordered playlists of climbs, shared by everyone.
-export const NAME_MAX = 80;
-
-export function plural(n, word) {
-  return `${n} ${word}${n === 1 ? '' : 's'}`;
-}
 
 // "Easy–Hard", or a single grade when every climb has it.
 function gradeRange(grades) {
@@ -43,7 +39,7 @@ function removedTitle(route) {
 
 // Asks for a name, creates the circuit and opens it ready to add climbs.
 async function newCircuit(ctx) {
-  const name = await promptDialog('New circuit', 'Name', 'e.g. Tuesday warm-up', { confirmLabel: 'Create', maxLength: NAME_MAX });
+  const name = await promptDialog('New circuit', 'Name', 'e.g. Tuesday warm-up', { confirmLabel: 'Create', maxLength: CIRCUIT_NAME_MAX });
   if (!name) return;
   try {
     const circuit = await ctx.api.createCircuit({ name, created_by: ctx.state.me }, ctx.state.me);
@@ -319,7 +315,7 @@ export async function renderDetail(root, ctx, { circuitId, adding = false }) {
   }
 
   async function rename() {
-    const name = await promptDialog('Rename circuit', 'Name', '', { value: circuit.name, confirmLabel: 'Save', maxLength: NAME_MAX });
+    const name = await promptDialog('Rename circuit', 'Name', '', { value: circuit.name, confirmLabel: 'Save', maxLength: CIRCUIT_NAME_MAX });
     if (!name || name === circuit.name) return;
     if (await apply(() => ctx.api.updateCircuit(circuit.id, { name }, state.me))) ctx.toast('Circuit renamed.', 'success');
   }

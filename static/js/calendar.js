@@ -4,7 +4,7 @@
 // with a finger check (the admin's) shows two small hands in its colors.
 
 import { FINGER_COLORS, FINGER_NAMES, drawHands, worstFinger } from './hands.js';
-import { h, icon, today } from './ui.js';
+import { h, icon, plural, today } from './ui.js';
 
 const pad = (n) => String(n).padStart(2, '0');
 
@@ -14,10 +14,6 @@ export function addMonths(month, n) {
   const [y, m] = month.split('-').map(Number);
   const d = new Date(y, m - 1 + n, 1);
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}`;
-}
-
-function plural(n, word) {
-  return `${n} ${word}${n === 1 ? '' : 's'}`;
 }
 
 // A day's color says what kind of day it was, never how much: more sends

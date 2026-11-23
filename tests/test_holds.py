@@ -1,21 +1,17 @@
 import io
 import os
-import shutil
 import sqlite3
 import struct
-import sys
-import tempfile
 import unittest
 import zlib
 
 from PIL import Image
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from support import ApiTestCase, ScratchTestCase
 
-import db  # noqa: E402
-import geometry  # noqa: E402
-import hold_names  # noqa: E402
-from app import create_app  # noqa: E402
+import db
+import geometry
+import hold_names
 
 
 def png_bytes(w=4, h=4):
@@ -68,8 +64,8 @@ class NamingTest(unittest.TestCase):
         col, row, dist = geometry.nearest_tnut(x + 3.1, y - 1.2)
         self.assertEqual((col, row), (3, 40))
         self.assertAlmostEqual(dist, (3.1 ** 2 + 1.2 ** 2) ** 0.5)
-        self.assertFalse(geometry.on_panel(50, geometry.HEIGHT + 0.5))
-        self.assertTrue(geometry.on_panel(50, geometry.FOOT_TOP + 4))
+        self.assertIsNone(geometry.panel_of(50, geometry.HEIGHT + 0.5))
+        self.assertEqual(geometry.panel_of(50, geometry.FOOT_TOP + 4), "foot")
 
     def test_side_panels(self):
         # 8" wide, 1" either side of the main panel, from the top of the wall
@@ -123,13 +119,9 @@ class NamingTest(unittest.TestCase):
         self.assertEqual(hold_names.suggest_name(taken, "X"), hold_names.NOUNS["X"][0] + " 2")
 
 
-class HoldApiTest(unittest.TestCase):
+class HoldApiTest(ApiTestCase):
     def setUp(self):
-        fd, self.db_path = tempfile.mkstemp(suffix=".db")
-        os.close(fd)
-        self.upload_dir = tempfile.mkdtemp()
-        self.app = create_app(self.db_path, self.upload_dir)
-        self.client = self.app.test_client()
+        super().setUp()
         conn = db.connect(self.db_path)
         # Proxy holds at A1, F12, K20 and P30.
         for col, row, name in [(0, 0, "Anchor"), (5, 11, "Falcon"), (10, 19, "Kite"), (15, 29, "Pebble")]:
@@ -139,10 +131,6 @@ class HoldApiTest(unittest.TestCase):
         conn.commit()
         conn.close()
         self.alex = self.client.post("/api/climbers", json={"name": "Alex"}).get_json()["id"]
-
-    def tearDown(self):
-        os.remove(self.db_path)
-        shutil.rmtree(self.upload_dir)
 
     def upload(self, status=201, image=None, **fields):
         data = {k: str(v) for k, v in fields.items()}
@@ -248,14 +236,15 @@ class HoldApiTest(unittest.TestCase):
 
     def test_color_round_trip_and_validation(self):
         x, y = geometry.tnut_xy(5, 3)
-        hold = self.upload(x=x, y=y, name="Fern", color="#A50606", color_opacity=0.4)
-        self.assertEqual((hold["color"], hold["color_opacity"]), ("#a50606", 0.4))
-        res = self.client.put("/api/holds/%d" % hold["id"], data={"color": "#1d4ed8", "color_opacity": "0.75"},
+        hold = self.upload(x=x, y=y, name="Fern", color="#A50606")
+        self.assertEqual(hold["color"], "#a50606")
+        self.assertNotIn("color_opacity", hold)   # one opacity for every hold, set in the browser
+        res = self.client.put("/api/holds/%d" % hold["id"], data={"color": "#1d4ed8"},
                               content_type="multipart/form-data")
-        self.assertEqual((res.get_json()["color"], res.get_json()["color_opacity"]), ("#1d4ed8", 0.75))
+        self.assertEqual(res.get_json()["color"], "#1d4ed8")
         res = self.client.put("/api/holds/%d" % hold["id"], data={"color": ""}, content_type="multipart/form-data")
         self.assertIsNone(res.get_json()["color"])
-        for bad in ({"color": "red"}, {"color": "#12345"}, {"color_opacity": "1.5"}):
+        for bad in ({"color": "red"}, {"color": "#12345"}):
             res = self.client.put("/api/holds/%d" % hold["id"], data=bad, content_type="multipart/form-data")
             self.assertEqual(res.status_code, 400, bad)
 
@@ -579,102 +568,106 @@ class HoldApiTest(unittest.TestCase):
         self.assertFalse(log["sends"][0]["possible"])
 
 
-class MigrationTest(unittest.TestCase):
+class MigrationTest(ScratchTestCase):
     def test_old_database_gains_columns_and_names(self):
-        fd, path = tempfile.mkstemp(suffix=".db")
-        os.close(fd)
-        try:
-            conn = sqlite3.connect(path)
-            conn.executescript("""
-                CREATE TABLE holds (id INTEGER PRIMARY KEY, x REAL NOT NULL, y REAL NOT NULL,
-                                    tnut_col INTEGER, tnut_row INTEGER, shape TEXT,
-                                    created_at TEXT NOT NULL DEFAULT (datetime('now')));
-            """)
-            for col, row in [(0, 0), (27, 4), (27, 9), (39, 38)]:
-                conn.execute("INSERT INTO holds (x, y, tnut_col, tnut_row) VALUES (?, ?, ?, ?)",
-                             geometry.tnut_xy(col, row) + (col, row))
-            conn.execute("INSERT INTO holds (x, y) VALUES (60.2, 30.1)")  # off-grid, no t-nut recorded
-            conn.commit()
-            conn.close()
+        path = self.scratch("test.db")
+        conn = sqlite3.connect(path)
+        conn.executescript("""
+            CREATE TABLE holds (id INTEGER PRIMARY KEY, x REAL NOT NULL, y REAL NOT NULL,
+                                tnut_col INTEGER, tnut_row INTEGER, shape TEXT,
+                                created_at TEXT NOT NULL DEFAULT (datetime('now')));
+        """)
+        for col, row in [(0, 0), (27, 4), (27, 9), (39, 38)]:
+            conn.execute("INSERT INTO holds (x, y, tnut_col, tnut_row) VALUES (?, ?, ?, ?)",
+                         geometry.tnut_xy(col, row) + (col, row))
+        conn.execute("INSERT INTO holds (x, y) VALUES (60.2, 30.1)")  # off-grid, no t-nut recorded
+        conn.commit()
+        conn.close()
 
-            conn = db.connect(path)
-            db.init_db(conn)
-            holds = conn.execute("SELECT * FROM holds ORDER BY id").fetchall()
-            self.assertEqual([geometry.name_letter(h["tnut_col"]) for h in holds], [h["name"][0] for h in holds])
-            self.assertEqual([h["name"][0] for h in holds[:4]], ["A", "B", "B", "N"])
-            self.assertEqual(len({h["name"] for h in holds}), 5)
-            self.assertEqual(holds[0]["size"], 6)
-            self.assertIsNotNone(holds[4]["tnut_col"])
-            conn.close()
-        finally:
-            os.remove(path)
+        conn = db.connect(path)
+        db.init_db(conn)
+        holds = conn.execute("SELECT * FROM holds ORDER BY id").fetchall()
+        self.assertEqual([geometry.name_letter(h["tnut_col"]) for h in holds], [h["name"][0] for h in holds])
+        self.assertEqual([h["name"][0] for h in holds[:4]], ["A", "B", "B", "N"])
+        self.assertEqual(len({h["name"] for h in holds}), 5)
+        self.assertEqual(holds[0]["size"], 6)
+        self.assertIsNotNone(holds[4]["tnut_col"])
+        conn.close()
+
+    def test_old_database_loses_retired_column_and_index(self):
+        """`color_opacity` and the on-the-wall-only name index are dropped,
+        keeping every hold."""
+        path = self.scratch("test.db")
+        conn = db.connect(path)
+        with open(db.SCHEMA_PATH) as f:
+            conn.executescript(f.read().replace(
+                "    color          TEXT,\n", "    color          TEXT,\n    color_opacity  REAL NOT NULL DEFAULT 0.5,\n"))
+        conn.execute("CREATE UNIQUE INDEX idx_holds_active_name ON holds(name COLLATE NOCASE) WHERE removed_at IS NULL")
+        x, y = geometry.tnut_xy(5, 3)
+        conn.execute("INSERT INTO holds (name, x, y, tnut_col, tnut_row, color, color_opacity) VALUES ('Fern', ?, ?, 5, 3, '#a50606', 0.4)",
+                     (x, y))
+        conn.commit()
+        db.init_db(conn)
+        if sqlite3.sqlite_version_info >= (3, 35, 0):
+            self.assertNotIn("color_opacity", [r["name"] for r in conn.execute("PRAGMA table_info(holds)")])
+        self.assertIsNone(conn.execute("SELECT 1 FROM sqlite_master WHERE name = 'idx_holds_active_name'").fetchone())
+        self.assertEqual(tuple(conn.execute("SELECT name, color FROM holds").fetchone()), ("Fern", "#a50606"))
+        conn.close()
 
     def test_side_holds_keep_no_tnut(self):
         """Startup gives holds without a t-nut their nearest one, but not holds
         on a side panel; a duplicate name there is replaced with an L or R noun."""
-        fd, path = tempfile.mkstemp(suffix=".db")
-        os.close(fd)
-        try:
-            conn = db.connect(path)
-            db.init_db(conn)
-            conn.execute("INSERT INTO holds (name, x, y, removed_at) VALUES ('Lantern', -5, 40, '2026-01-01')")
-            conn.execute("INSERT INTO holds (name, x, y) VALUES ('Rocket', 125, 40)")
-            conn.commit()
-            conn.execute("DROP INDEX idx_holds_name")   # as in a database from before names were unique
-            conn.execute("INSERT INTO holds (name, x, y) VALUES ('lantern', 125, 60)")
-            conn.commit()
-            db.init_db(conn)
-            holds = conn.execute("SELECT name, tnut_col, tnut_row FROM holds ORDER BY id").fetchall()
-            self.assertEqual([(h["tnut_col"], h["tnut_row"]) for h in holds], [(None, None)] * 3)
-            self.assertEqual([h["name"] for h in holds[1:]], ["Rocket", "lantern"])   # on the wall: keeps it
-            self.assertTrue(holds[0]["name"].startswith("L") and holds[0]["name"] != "Lantern")
-            conn.close()
-        finally:
-            os.remove(path)
+        path = self.scratch("test.db")
+        conn = db.connect(path)
+        db.init_db(conn)
+        conn.execute("INSERT INTO holds (name, x, y, removed_at) VALUES ('Lantern', -5, 40, '2026-01-01')")
+        conn.execute("INSERT INTO holds (name, x, y) VALUES ('Rocket', 125, 40)")
+        conn.commit()
+        conn.execute("DROP INDEX idx_holds_name")   # as in a database from before names were unique
+        conn.execute("INSERT INTO holds (name, x, y) VALUES ('lantern', 125, 60)")
+        conn.commit()
+        db.init_db(conn)
+        holds = conn.execute("SELECT name, tnut_col, tnut_row FROM holds ORDER BY id").fetchall()
+        self.assertEqual([(h["tnut_col"], h["tnut_row"]) for h in holds], [(None, None)] * 3)
+        self.assertEqual([h["name"] for h in holds[1:]], ["Rocket", "lantern"])   # on the wall: keeps it
+        self.assertTrue(holds[0]["name"].startswith("L") and holds[0]["name"] != "Lantern")
+        conn.close()
 
     def test_ceiling_holds_keep_no_tnut(self):
-        fd, path = tempfile.mkstemp(suffix=".db")
-        os.close(fd)
-        try:
-            conn = db.connect(path)
-            db.init_db(conn)
-            conn.execute("INSERT INTO holds (name, x, y) VALUES ('Fern', ?, -10)", (geometry.tnut_xy(5, 0)[0],))
-            conn.commit()
-            db.init_db(conn)
-            hold = conn.execute("SELECT tnut_col, tnut_row FROM holds").fetchone()
-            self.assertEqual((hold["tnut_col"], hold["tnut_row"]), (None, None))
-            conn.close()
-        finally:
-            os.remove(path)
+        path = self.scratch("test.db")
+        conn = db.connect(path)
+        db.init_db(conn)
+        conn.execute("INSERT INTO holds (name, x, y) VALUES ('Fern', ?, -10)", (geometry.tnut_xy(5, 0)[0],))
+        conn.commit()
+        db.init_db(conn)
+        hold = conn.execute("SELECT tnut_col, tnut_row FROM holds").fetchone()
+        self.assertEqual((hold["tnut_col"], hold["tnut_row"]), (None, None))
+        conn.close()
 
     def test_old_database_loses_duplicate_names(self):
         """Older databases kept names unique only on the wall: the hold on the
         wall keeps a shared name and the removed one gets a new one."""
-        fd, path = tempfile.mkstemp(suffix=".db")
-        os.close(fd)
-        try:
-            conn = db.connect(path)
-            with open(db.SCHEMA_PATH) as f:
-                conn.executescript(f.read())
-            for name, col, removed in [("Falcon", 5, "2026-01-01"), ("falcon", 5, None), ("Kite", 10, "2026-01-02"),
-                                       ("Kite", 10, "2026-01-03"), ("Anchor", 0, None)]:
-                x, y = geometry.tnut_xy(col, 3)
-                conn.execute("INSERT INTO holds (name, x, y, tnut_col, tnut_row, removed_at) VALUES (?, ?, ?, ?, 3, ?)",
-                             (name, x, y, col, removed))
-            conn.commit()
-            db.init_db(conn)
-            names = [r["name"] for r in conn.execute("SELECT name FROM holds ORDER BY id")]
-            self.assertEqual(names[1], "falcon")                    # on the wall: keeps it
-            self.assertNotEqual(names[0].lower(), "falcon")
-            self.assertTrue(names[0].startswith("F"))
-            self.assertEqual(names[2], "Kite")                      # both removed: the older keeps it
-            self.assertTrue(names[3].startswith("K") and names[3] != "Kite")
-            self.assertEqual(len({n.lower() for n in names}), 5)
-            with self.assertRaises(sqlite3.IntegrityError):
-                conn.execute("UPDATE holds SET name = 'ANCHOR' WHERE id = 2")
-            conn.close()
-        finally:
-            os.remove(path)
+        path = self.scratch("test.db")
+        conn = db.connect(path)
+        with open(db.SCHEMA_PATH) as f:
+            conn.executescript(f.read())
+        for name, col, removed in [("Falcon", 5, "2026-01-01"), ("falcon", 5, None), ("Kite", 10, "2026-01-02"),
+                                   ("Kite", 10, "2026-01-03"), ("Anchor", 0, None)]:
+            x, y = geometry.tnut_xy(col, 3)
+            conn.execute("INSERT INTO holds (name, x, y, tnut_col, tnut_row, removed_at) VALUES (?, ?, ?, ?, 3, ?)",
+                         (name, x, y, col, removed))
+        conn.commit()
+        db.init_db(conn)
+        names = [r["name"] for r in conn.execute("SELECT name FROM holds ORDER BY id")]
+        self.assertEqual(names[1], "falcon")                    # on the wall: keeps it
+        self.assertNotEqual(names[0].lower(), "falcon")
+        self.assertTrue(names[0].startswith("F"))
+        self.assertEqual(names[2], "Kite")                      # both removed: the older keeps it
+        self.assertTrue(names[3].startswith("K") and names[3] != "Kite")
+        self.assertEqual(len({n.lower() for n in names}), 5)
+        with self.assertRaises(sqlite3.IntegrityError):
+            conn.execute("UPDATE holds SET name = 'ANCHOR' WHERE id = 2")
+        conn.close()
 
 
 if __name__ == "__main__":

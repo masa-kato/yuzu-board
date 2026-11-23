@@ -1,37 +1,15 @@
-import os
-import sys
-import tempfile
 import unittest
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from support import ApiTestCase, ScratchTestCase
 
-import auth  # noqa: E402
-import db  # noqa: E402
-from app import create_app  # noqa: E402
+import db
+from app import create_app
 
 
-class OutdoorTest(unittest.TestCase):
+class OutdoorTest(ApiTestCase):
     def setUp(self):
-        fd, self.db_path = tempfile.mkstemp(suffix=".db")
-        os.close(fd)
-        self.app = create_app(self.db_path, tempfile.mkdtemp())
-        self.client = self.app.test_client()
-        auth.PASSWORD_METHOD = "pbkdf2:sha256:1000"
-        conn = db.connect(self.db_path)
-        self.masa = auth.set_admin(conn, "Masa", "hangboard")
-        conn.close()
-        self.call("post", "/api/login", {"password": "hangboard"})
-
-    def tearDown(self):
-        os.remove(self.db_path)
-
-    def call(self, method, url, data=None, status=None, client=None):
-        res = getattr(client or self.client, method)(url, json=data)
-        if status is not None:
-            self.assertEqual(res.status_code, status, res.get_json())
-        else:
-            self.assertLess(res.status_code, 300, res.get_json())
-        return res.get_json()
+        super().setUp()
+        self.masa = self.make_admin()
 
     def session(self, date, entries, area="Bishop", notes="", status=201):
         return self.call("post", "/api/outdoor/sessions",
@@ -161,14 +139,12 @@ if __name__ == "__main__":
     unittest.main()
 
 
-class PriorSessionsMigrationTest(unittest.TestCase):
+class PriorSessionsMigrationTest(ScratchTestCase):
     """A database from before sessions were counted gains
     outdoor_climbs.prior_sessions, 0 for the climbs it already has."""
 
     def test_old_database_gains_the_column(self):
-        fd, path = tempfile.mkstemp(suffix=".db")
-        os.close(fd)
-        self.addCleanup(os.remove, path)
+        path = self.scratch("test.db")
         conn = db.connect(path)
         with open(db.SCHEMA_PATH) as f:
             conn.executescript(f.read().replace(
@@ -177,7 +153,7 @@ class PriorSessionsMigrationTest(unittest.TestCase):
         conn.commit()
         self.assertNotIn("prior_sessions", [r["name"] for r in conn.execute("PRAGMA table_info(outdoor_climbs)")])
         conn.close()
-        create_app(path, tempfile.mkdtemp())
+        create_app(path, self.scratch("uploads"))
         conn = db.connect(path)
         self.assertEqual(conn.execute("SELECT name, prior_sessions FROM outdoor_climbs").fetchone()[:], ("Hagakure", 0))
         conn.close()

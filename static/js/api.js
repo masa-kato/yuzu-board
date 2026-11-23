@@ -59,7 +59,8 @@ export const api = {
   climbers: () => request('GET', '/api/climbers'),
   addClimber: (name) => request('POST', '/api/climbers', { name }),
   logbook: (climberId) => request('GET', `/api/climbers/${climberId}/sends`),
-  // {days: {date: {sends, tries, outdoor, workout}}} for the calendars.
+  // {days: {date: {sends, tries, outdoor, workout, fingers?}}} for the calendars;
+  // outdoor, workout and fingers ({start, end}) only on the admin's own days, logged in.
   days: (climberId) => request('GET', `/api/climbers/${climberId}/days`),
 
   routes: (params = {}) => request('GET', `/api/routes${query(params)}`),

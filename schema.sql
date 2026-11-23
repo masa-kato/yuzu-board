@@ -9,11 +9,11 @@ CREATE TABLE IF NOT EXISTS climbers (
 -- whose column letter the hold's name starts with. Holds without an `image`
 -- (a PNG under uploads/holds/) are drawn as proxy circles. `size` is the
 -- image's longest side in inches; `color` (#rrggbb) is laid over the PNG (at
--- one opacity for every hold, set in the browser; `color_opacity` is no longer
--- used). Removing a hold only sets removed_at, so routes that used it can
--- still be shown in Legacy. No two holds share a name (ignoring case),
--- removed ones included: db.migrate() creates that index (idx_holds_name).
--- Older databases gain the newer columns through db.migrate().
+-- one opacity for every hold, set in the browser). Removing a hold only sets
+-- removed_at, so routes that used it can still be shown in Legacy. No two
+-- holds share a name (ignoring case), removed ones included: db.migrate()
+-- creates that index (idx_holds_name). Older databases gain the newer columns,
+-- and lose the retired `color_opacity`, through db.migrate().
 CREATE TABLE IF NOT EXISTS holds (
     id             INTEGER PRIMARY KEY,
     name           TEXT,
@@ -25,7 +25,6 @@ CREATE TABLE IF NOT EXISTS holds (
     size           REAL NOT NULL DEFAULT 6,
     rotation       REAL NOT NULL DEFAULT 0,
     color          TEXT,
-    color_opacity  REAL NOT NULL DEFAULT 0.5,
     removed_at     TEXT,
     created_at     TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -121,7 +120,7 @@ CREATE TABLE IF NOT EXISTS circuit_routes (
 
 -- The named colors offered for holds, shared by everyone, in `position` order.
 -- Holds store the hex itself, so a hold uses a color when their hexes match;
--- changing a color's hex recolors those holds (app.py). New databases start
+-- changing a color's hex recolors those holds (holds.py). New databases start
 -- with db.DEFAULT_COLORS.
 CREATE TABLE IF NOT EXISTS colors (
     id          INTEGER PRIMARY KEY,

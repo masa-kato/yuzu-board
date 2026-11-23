@@ -1,13 +1,9 @@
-import os
-import sys
-import tempfile
 import unittest
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from support import ApiTestCase
 
-import db  # noqa: E402
-import geometry  # noqa: E402
-from app import create_app  # noqa: E402
+import db
+import geometry
 
 
 class GeometryTest(unittest.TestCase):
@@ -28,12 +24,9 @@ class GeometryTest(unittest.TestCase):
         self.assertEqual(geometry.HEIGHT - y, 2.0)
 
 
-class ApiTest(unittest.TestCase):
+class ApiTest(ApiTestCase):
     def setUp(self):
-        fd, self.db_path = tempfile.mkstemp(suffix=".db")
-        os.close(fd)
-        self.app = create_app(self.db_path)
-        self.client = self.app.test_client()
+        super().setUp()
         conn = db.connect(self.db_path)
         for col, row in [(0, 0), (5, 10), (10, 20), (15, 30)]:
             x, y = geometry.tnut_xy(col, row)
@@ -43,9 +36,6 @@ class ApiTest(unittest.TestCase):
         self.alex = self.post("/api/climbers", {"name": "Alex"})["id"]
         self.sam = self.post("/api/climbers", {"name": "Sam"})["id"]
         self.jo = self.post("/api/climbers", {"name": "Jo"})["id"]
-
-    def tearDown(self):
-        os.remove(self.db_path)
 
     # helpers ---------------------------------------------------------------
 

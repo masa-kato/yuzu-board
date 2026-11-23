@@ -1,50 +1,22 @@
-import os
-import sys
-import tempfile
 import unittest
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from support import ApiTestCase
 
-import auth  # noqa: E402
-import db  # noqa: E402
-import geometry  # noqa: E402
-from app import create_app  # noqa: E402
+import auth
+import db
 
 
-class AuthTest(unittest.TestCase):
+class AuthTest(ApiTestCase):
     def setUp(self):
-        fd, self.db_path = tempfile.mkstemp(suffix=".db")
-        os.close(fd)
-        self.app = create_app(self.db_path, tempfile.mkdtemp())
-        self.client = self.app.test_client()
-        auth.WRONG_PASSWORD_DELAY = 0
-        auth.PASSWORD_METHOD = "pbkdf2:sha256:1000"   # quick to check in tests
-        conn = db.connect(self.db_path)
-        x, y = geometry.tnut_xy(5, 10)
-        conn.execute("INSERT INTO holds (name, x, y, tnut_col, tnut_row) VALUES ('Falcon', ?, ?, 5, 10)", (x, y))
-        conn.commit()
-        conn.close()
+        super().setUp()
+        self.add_holds([("Falcon", 5, 10)])
         self.alex = self.call("post", "/api/climbers", {"name": "Alex"})["id"]
         self.route = self.call("post", "/api/routes", {
             "name": "Slab", "grade": "easy", "set_date": "2026-09-01", "holds": [{"hold_id": 1, "role": "start"}],
         })["id"]
 
-    def tearDown(self):
-        os.remove(self.db_path)
-
-    def call(self, method, url, data=None, status=None, client=None):
-        res = getattr(client or self.client, method)(url, json=data)
-        if status is not None:
-            self.assertEqual(res.status_code, status, res.get_json())
-        else:
-            self.assertLess(res.status_code, 300, res.get_json())
-        return res.get_json()
-
     def set_admin(self, name="Masa", password="hangboard"):
-        conn = db.connect(self.db_path)
-        climber_id = auth.set_admin(conn, name, password)
-        conn.close()
-        return climber_id
+        return self.make_admin(name, password, log_in=False)
 
     def send(self, climber_id, status=201, client=None):
         return self.call("post", "/api/sends", {"route_id": self.route, "climber_id": climber_id, "sent_date": "2026-10-01"},

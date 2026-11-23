@@ -212,21 +212,6 @@ def set_values(kind, data, existing=None):
     return values
 
 
-@bp.get("/api/workouts")
-@admin_required
-def list_workouts():
-    """[{workout_date, tiredness, exercises}] between ?from= and ?to= (both optional)."""
-    conn = db.get_db()
-    lo = parse_date(request.args["from"], "from") if request.args.get("from") else "0000-01-01"
-    hi = parse_date(request.args["to"], "to") if request.args.get("to") else "9999-12-31"
-    return jsonify(db.rows(conn.execute(
-        """SELECT w.workout_date, w.tiredness,
-                  (SELECT COUNT(*) FROM workout_exercises WHERE workout_id = w.id) AS exercises
-           FROM workouts w WHERE w.workout_date BETWEEN ? AND ? ORDER BY w.workout_date DESC""",
-        (lo, hi),
-    )))
-
-
 @bp.get("/api/workouts/<date>")
 @admin_required
 def get_workout(date):

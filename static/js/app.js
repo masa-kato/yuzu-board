@@ -1,7 +1,7 @@
 import { api } from './api.js';
 import { createBoard, holdTitle, imagePpi } from './board.js';
 import { settleSwipe } from './swipe.js';
-import { GRADES, h, promptDialog, toast } from './ui.js';
+import { GRADES, PHONE, h, promptDialog, toast } from './ui.js';
 import * as climbs from './views/climbs.js';
 import * as routeDetail from './views/routeDetail.js';
 import * as editor from './views/editor.js';
@@ -16,33 +16,62 @@ import * as fingers from './views/fingers.js';
 
 const ME_KEY = 'homewall.me';
 const PREFS_KEY = 'homewall.filters.v1';
-const VIEWS = {
-  climbs, legacy: climbs, route: routeDetail, editor, logbook, holds: holdsView,
-  circuits, circuit: { render: circuits.renderDetail }, stats, drafts,
-  outdoors: { render: outdoor.renderOutdoors }, outdoor: { render: outdoor.renderSession },
-  outdoorClimb: { render: outdoor.renderClimb },
-  workout, workoutExercises: { render: workout.renderExercises }, exercise: { render: workout.renderExercise },
-  fingers,
+// Every page, by the first part of its link (#/route/12?circuit=3 is `route`):
+//   render  draws it: render(root, ctx, params), returning an optional handle
+//           { destroy, onHoldClick, onHoldHover, onWallPointer } (docs/development.md)
+//   params  what it takes from the rest of the link: (the part after the name, the ?query)
+//   nav     the tab it's under (or a function of its params)
+//   admin   only for the admin, logged in (auth.py); anyone else goes to the Logbook
+//   computer  not on phones, which go to the Climbs list instead
+//   layout  'calendar': calendar.js takes the wall's place; 'solo': the panel alone,
+//           centered; otherwise the wall beside the panel
+//   list    its controls stay put while only its list scrolls
+//   pinned  and on phones the board stays pinned above that list
+// A link to no page opens the Climbs list.
+const idOf = (raw) => Number(raw) || null;
+const PAGES = {
+  climbs: { render: climbs.render, nav: 'climbs', list: true, pinned: true },
+  legacy: { render: climbs.render, params: () => ({ legacy: true }), nav: 'climbs', list: true, pinned: true },
+  drafts: { render: drafts.render, nav: 'climbs', list: true, pinned: true },
+  // ?circuit= opens the climb as a step of that circuit.
+  route: {
+    render: routeDetail.render,
+    params: (raw, q) => ({ routeId: Number(raw), circuitId: idOf(q.get('circuit')) }),
+    nav: (p) => (p.circuitId ? 'circuits' : 'climbs'),
+  },
+  // ?parent= sets a variation of that climb; ?draft= picks up a saved draft.
+  new: { render: editor.render, params: (_, q) => ({ parentId: idOf(q.get('parent')), draftId: idOf(q.get('draft')) }), nav: 'editor' },
+  edit: { render: editor.render, params: (raw) => ({ routeId: Number(raw) }), nav: 'editor' },
+  circuits: { render: circuits.render, nav: 'circuits', list: true },
+  circuit: {
+    render: circuits.renderDetail, params: (raw, q) => ({ circuitId: Number(raw), adding: q.get('add') === '1' }), nav: 'circuits', list: true,
+  },
+  holds: { render: holdsView.render, nav: 'holds', computer: true },
+  stats: { render: stats.render, nav: 'stats', list: true },
+  // ?day= opens that day, as a day picked on the calendar.
+  logbook: { render: logbook.render, params: (_, q) => ({ day: q.get('day') }), nav: 'logbook', layout: 'calendar', list: true },
+  // ?date= is the day (today by default); ?phase= start or end.
+  fingers: {
+    render: fingers.render, params: (_, q) => ({ date: q.get('date'), phase: q.get('phase') }), nav: 'logbook', admin: true, layout: 'calendar',
+  },
+  outdoors: {
+    render: outdoor.renderOutdoors, params: (raw) => ({ tab: raw === 'sent' ? 'sent' : 'progress' }),
+    nav: 'outdoors', admin: true, layout: 'solo', list: true,
+  },
+  outdoor: {
+    render: outdoor.renderSession, params: (raw, q) => ({ sessionId: raw === 'new' ? null : idOf(raw), date: q.get('date') }),
+    nav: 'outdoors', admin: true, layout: 'solo',
+  },
+  'outdoor-climb': { render: outdoor.renderClimb, params: (raw) => ({ climbId: Number(raw) }), nav: 'outdoors', admin: true, layout: 'solo' },
+  // #/workout/exercises is the exercise list; otherwise ?date= is the day (today by default).
+  workout: {
+    render: (root, ctx, p) => (p.exercises ? workout.renderExercises(root, ctx) : workout.render(root, ctx, p)),
+    params: (raw, q) => (raw === 'exercises' ? { exercises: true } : { date: q.get('date') }),
+    nav: 'workout', admin: true, layout: 'calendar',
+  },
+  exercise: { render: workout.renderExercise, params: (raw) => ({ exerciseId: Number(raw) }), nav: 'workout', admin: true, layout: 'calendar' },
 };
-const NAV_FOR_VIEW = {
-  climbs: 'climbs', legacy: 'climbs', route: 'climbs', editor: 'editor', logbook: 'logbook', holds: 'holds',
-  circuits: 'circuits', circuit: 'circuits', stats: 'stats', drafts: 'climbs',
-  outdoors: 'outdoors', outdoor: 'outdoors', outdoorClimb: 'outdoors',
-  workout: 'workout', workoutExercises: 'workout', exercise: 'workout',
-  fingers: 'logbook',
-};
-// The admin's alone (auth.py); anyone else is sent to the Logbook.
-const ADMIN_VIEWS = new Set(['outdoors', 'outdoor', 'outdoorClimb', 'workout', 'workoutExercises', 'exercise', 'fingers']);
-// Views whose controls stay put while only their list scrolls; on phones the
-// climb lists also pin the board above them.
-const LIST_VIEWS = new Set(['climbs', 'legacy', 'drafts', 'logbook', 'outdoors', 'circuits', 'circuit', 'stats']);
-const PINNED_BOARD_VIEWS = new Set(['climbs', 'legacy', 'drafts']);
-// Views that show a calendar (calendar.js) in the side pane, where the wall would be.
-const CALENDAR_VIEWS = new Set(['logbook', 'workout', 'workoutExercises', 'exercise', 'fingers']);
-// Views with neither the wall nor a calendar: the panel alone, centered.
-const SOLO_VIEWS = new Set(['outdoors', 'outdoor', 'outdoorClimb']);
-// Phones have no Wall tab (app.css): holds are added and removed on a computer.
-const PHONE = window.matchMedia('(max-width: 900px)');
+PAGES['outdoor-climbs'] = PAGES.outdoors;   // an old link to the climbs list
 
 const defaultFilters = () => ({ q: '', scope: 'all', grades: [], hideSent: false, holdId: null, sort: 'set_date', dir: 'desc' });
 
@@ -236,12 +265,12 @@ async function logOut() {
     toast(err.message, 'error');
     return;
   }
+  // render() sends an admin page on to the Logbook.
   if (state.me === state.adminId) setMe(null);
   else {
     renderClimberSelect();
     render();
   }
-  if (/^#\/(workout|outdoor)/.test(location.hash)) location.hash = '#/logbook';
 }
 
 climberSelect.addEventListener('change', async () => {
@@ -313,61 +342,22 @@ const ctx = {
   },
 };
 
+// The page the link is to (PAGES), and what it takes from the link.
 function parseHash() {
   const [path, queryString] = location.hash.replace(/^#\/?/, '').split('?');
-  const [name, id] = path.split('/');
-  const params = new URLSearchParams(queryString || '');
-  switch (name) {
-    case 'route':
-      // ?circuit= opens the climb as a step of that circuit.
-      return { view: 'route', params: { routeId: Number(id), circuitId: Number(params.get('circuit')) || null } };
-    case 'circuits':
-      return { view: 'circuits', params: {} };
-    case 'circuit':
-      return { view: 'circuit', params: { circuitId: Number(id), adding: params.get('add') === '1' } };
-    case 'edit':
-      return { view: 'editor', params: { routeId: Number(id) } };
-    case 'new':
-      // ?draft= picks up a saved draft.
-      return { view: 'editor', params: { parentId: Number(params.get('parent')) || null, draftId: Number(params.get('draft')) || null } };
-    case 'logbook':
-      // ?day= opens that day, as a day picked on the calendar.
-      return { view: 'logbook', params: { day: params.get('day') } };
-    case 'outdoors':
-    case 'outdoor-climbs':   // an old link to the climbs list
-      return { view: 'outdoors', params: { tab: id === 'sent' ? 'sent' : 'progress' } };
-    case 'outdoor':
-      return { view: 'outdoor', params: { sessionId: id === 'new' ? null : Number(id) || null, date: params.get('date') } };
-    case 'outdoor-climb':
-      return { view: 'outdoorClimb', params: { climbId: Number(id) } };
-    case 'workout':
-      // ?date= is the day to show (today by default).
-      return id === 'exercises' ? { view: 'workoutExercises', params: {} } : { view: 'workout', params: { date: params.get('date') } };
-    case 'exercise':
-      return { view: 'exercise', params: { exerciseId: Number(id) } };
-    case 'fingers':
-      // ?date= is the day (today by default); ?phase= start or end.
-      return { view: 'fingers', params: { date: params.get('date'), phase: params.get('phase') } };
-    case 'legacy':
-      return { view: 'legacy', params: { legacy: true } };
-    case 'drafts':
-      return { view: 'drafts', params: {} };
-    case 'holds':
-      return { view: 'holds', params: {} };
-    case 'stats':
-      return { view: 'stats', params: {} };
-    default:
-      return { view: 'climbs', params: {} };
-  }
+  const [first, raw] = path.split('/');
+  const name = Object.prototype.hasOwnProperty.call(PAGES, first) ? first : 'climbs';
+  const page = PAGES[name];
+  return { view: name, page, params: page.params ? page.params(raw, new URLSearchParams(queryString || '')) : {} };
 }
 
 async function render() {
-  const { view, params } = parseHash();
-  if (view === 'holds' && PHONE.matches) {
-    location.replace('#/climbs');   // an old link to the Wall tab
+  const { view, page, params } = parseHash();
+  if (page.computer && PHONE.matches) {
+    location.replace('#/climbs');   // e.g. an old link to the Wall tab
     return;
   }
-  if (ADMIN_VIEWS.has(view) && !state.admin) {
+  if (page.admin && !state.admin) {
     location.replace('#/logbook');
     return;
   }
@@ -378,14 +368,14 @@ async function render() {
   // Climbs list, the climb just left stays on the board (climbs.js).
   board.reset({ keepRoute: currentView === 'route' && ['route', 'climbs', 'legacy'].includes(view) });
   currentView = view;
-  const nav = view === 'route' && params.circuitId ? 'circuits' : NAV_FOR_VIEW[view];
+  const nav = typeof page.nav === 'function' ? page.nav(params) : page.nav;
   document.querySelectorAll('.tabs a').forEach((a) => a.classList.toggle('active', a.dataset.nav === nav));
 
-  panel.classList.toggle('panel-list', LIST_VIEWS.has(view));
-  document.body.classList.toggle('list-mode', PINNED_BOARD_VIEWS.has(view));
-  document.body.classList.toggle('calendar-mode', CALENDAR_VIEWS.has(view));
-  document.body.classList.toggle('solo-mode', SOLO_VIEWS.has(view));
-  sidePane.hidden = !CALENDAR_VIEWS.has(view);
+  panel.classList.toggle('panel-list', !!page.list);
+  document.body.classList.toggle('list-mode', !!page.pinned);
+  document.body.classList.toggle('calendar-mode', page.layout === 'calendar');
+  document.body.classList.toggle('solo-mode', page.layout === 'solo');
+  sidePane.hidden = page.layout !== 'calendar';
   sidePane.replaceChildren();
   // Start each page at the top, so on phones the board is in view.
   window.scrollTo(0, 0);
@@ -400,7 +390,7 @@ async function render() {
   // A view whose data arrives after the user has navigated away must not touch the board.
   const viewCtx = Object.assign(Object.create(ctx), { stale: () => token !== renderToken });
   try {
-    const handle = await VIEWS[view].render(root, viewCtx, params);
+    const handle = await page.render(root, viewCtx, params);
     if (token === renderToken) current = handle || {};
     else handle?.destroy?.();
   } catch (err) {

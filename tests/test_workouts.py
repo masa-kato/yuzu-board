@@ -1,38 +1,13 @@
-import os
-import sys
-import tempfile
 import unittest
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-import auth  # noqa: E402
-import db  # noqa: E402
-from app import create_app  # noqa: E402
+from support import ApiTestCase
 
 
-class WorkoutTest(unittest.TestCase):
+class WorkoutTest(ApiTestCase):
     def setUp(self):
-        fd, self.db_path = tempfile.mkstemp(suffix=".db")
-        os.close(fd)
-        self.app = create_app(self.db_path, tempfile.mkdtemp())
-        self.client = self.app.test_client()
-        auth.PASSWORD_METHOD = "pbkdf2:sha256:1000"
-        conn = db.connect(self.db_path)
-        self.masa = auth.set_admin(conn, "Masa", "hangboard")
-        conn.close()
-        self.call("post", "/api/login", {"password": "hangboard"})
+        super().setUp()
+        self.masa = self.make_admin()
         self.exercises = {e["name"]: e for e in self.call("get", "/api/exercises")}
-
-    def tearDown(self):
-        os.remove(self.db_path)
-
-    def call(self, method, url, data=None, status=None, client=None):
-        res = getattr(client or self.client, method)(url, json=data)
-        if status is not None:
-            self.assertEqual(res.status_code, status, res.get_json())
-        else:
-            self.assertLess(res.status_code, 300, res.get_json())
-        return res.get_json()
 
     def variant(self, exercise, name):
         return next(v["id"] for v in self.exercises[exercise]["variants"] if v["name"] == name)
@@ -54,7 +29,7 @@ class WorkoutTest(unittest.TestCase):
     def test_only_the_admin(self):
         other = self.app.test_client()
         for method, url in [("get", "/api/exercises"), ("get", "/api/workouts/2026-11-01"),
-                            ("put", "/api/workouts/2026-11-01"), ("get", "/api/workouts")]:
+                            ("put", "/api/workouts/2026-11-01")]:
             self.call(method, url, {}, 401, other)
 
     def test_starter_exercises(self):
@@ -74,8 +49,6 @@ class WorkoutTest(unittest.TestCase):
         self.assertEqual((workout["tiredness"], workout["notes"]), (4, "slept badly"))
         self.call("put", "/api/workouts/2026-11-01", {"tiredness": 6}, 400)
         self.assertEqual([(s["weight"], s["reps"]) for s in workout["blocks"][0]["sets"]], [(135, 8), (145, 6)])
-        listed = self.call("get", "/api/workouts?from=2026-11-01&to=2026-11-30")
-        self.assertEqual(listed, [{"workout_date": "2026-11-01", "tiredness": 4, "exercises": 1}])
         days = self.call("get", "/api/climbers/%d/days" % self.masa)["days"]
         self.assertTrue(days["2026-11-01"]["workout"])
 

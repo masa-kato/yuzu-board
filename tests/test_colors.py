@@ -1,23 +1,18 @@
-import os
-import sys
-import tempfile
 import unittest
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from support import ApiTestCase, ScratchTestCase
 
-import db  # noqa: E402
-import geometry  # noqa: E402
-from app import create_app  # noqa: E402
+import db
+import geometry
+from app import create_app
+
 
 BLUE = "#1e3a8a"
 
 
-class ColorApiTest(unittest.TestCase):
+class ColorApiTest(ApiTestCase):
     def setUp(self):
-        fd, self.db_path = tempfile.mkstemp(suffix=".db")
-        os.close(fd)
-        self.uploads = tempfile.mkdtemp()
-        self.client = create_app(self.db_path, self.uploads).test_client()
+        super().setUp()
         conn = db.connect(self.db_path)
         # Two blue holds, a red one, one with no color, and a removed blue one.
         for col, name, color, removed in [(0, "Anchor", BLUE, None), (1, "Badger", BLUE, None), (2, "Cobra", "#7a0404", None),
@@ -27,9 +22,6 @@ class ColorApiTest(unittest.TestCase):
                          (name, x, y, col, color, removed))
         conn.commit()
         conn.close()
-
-    def tearDown(self):
-        os.remove(self.db_path)
 
     def colors(self):
         return self.client.get("/api/colors").get_json()
@@ -109,7 +101,7 @@ class ColorApiTest(unittest.TestCase):
                 self.client.delete("/api/colors/%d" % c["id"])
         left = [c["name"] for c in self.colors()]
         self.assertEqual(left, ["Red", "Blue"])
-        fresh = create_app(self.db_path, self.uploads).test_client()     # a restart
+        fresh = create_app(self.db_path, self.upload_dir).test_client()     # a restart
         self.assertEqual([c["name"] for c in fresh.get("/api/colors").get_json()], left)
 
     def test_bulk_recolor(self):
@@ -134,19 +126,15 @@ class ColorApiTest(unittest.TestCase):
         self.assertEqual(put({"hold_ids": "1", "color": BLUE}), 400)
 
 
-class ColorMigrationTest(unittest.TestCase):
+class ColorMigrationTest(ScratchTestCase):
     def test_old_database_gains_the_default_list(self):
-        fd, path = tempfile.mkstemp(suffix=".db")
-        os.close(fd)
-        try:
-            conn = db.connect(path)
-            conn.execute("CREATE TABLE holds (id INTEGER PRIMARY KEY, x REAL NOT NULL, y REAL NOT NULL, tnut_col INTEGER, tnut_row INTEGER)")
-            conn.commit()
-            conn.close()
-            client = create_app(path, tempfile.mkdtemp()).test_client()
-            self.assertEqual(len(client.get("/api/colors").get_json()), len(db.DEFAULT_COLORS))
-        finally:
-            os.remove(path)
+        path = self.scratch("test.db")
+        conn = db.connect(path)
+        conn.execute("CREATE TABLE holds (id INTEGER PRIMARY KEY, x REAL NOT NULL, y REAL NOT NULL, tnut_col INTEGER, tnut_row INTEGER)")
+        conn.commit()
+        conn.close()
+        client = create_app(path, self.scratch("uploads")).test_client()
+        self.assertEqual(len(client.get("/api/colors").get_json()), len(db.DEFAULT_COLORS))
 
 
 if __name__ == "__main__":

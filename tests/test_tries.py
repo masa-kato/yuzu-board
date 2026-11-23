@@ -1,41 +1,15 @@
-import os
-import sys
-import tempfile
 import unittest
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-import auth  # noqa: E402
-import db  # noqa: E402
-import geometry  # noqa: E402
-from app import create_app  # noqa: E402
+from support import ApiTestCase
 
 
-class TriesTest(unittest.TestCase):
+class TriesTest(ApiTestCase):
     def setUp(self):
-        fd, self.db_path = tempfile.mkstemp(suffix=".db")
-        os.close(fd)
-        self.client = create_app(self.db_path, tempfile.mkdtemp()).test_client()
-        conn = db.connect(self.db_path)
-        for name, col, row in [("Falcon", 5, 10), ("Kestrel", 10, 20)]:
-            x, y = geometry.tnut_xy(col, row)
-            conn.execute("INSERT INTO holds (name, x, y, tnut_col, tnut_row) VALUES (?, ?, ?, ?, ?)", (name, x, y, col, row))
-        conn.commit()
-        conn.close()
+        super().setUp()
+        self.add_holds([("Falcon", 5, 10), ("Kestrel", 10, 20)])
         self.alex = self.call("post", "/api/climbers", {"name": "Alex"})["id"]
         self.slab = self.make_route("Slab", hold=1)
         self.roof = self.make_route("Roof", hold=2)
-
-    def tearDown(self):
-        os.remove(self.db_path)
-
-    def call(self, method, url, data=None, status=None):
-        res = getattr(self.client, method)(url, json=data)
-        if status is not None:
-            self.assertEqual(res.status_code, status, res.get_json())
-        else:
-            self.assertLess(res.status_code, 300, res.get_json())
-        return res.get_json()
 
     def make_route(self, name, hold):
         return self.call("post", "/api/routes", {
@@ -85,10 +59,7 @@ class TriesTest(unittest.TestCase):
         self.assertEqual(self.call("get", "/api/routes/%d" % self.slab)["my_history"], [])
 
     def test_only_the_admin_marks_tries_as_the_admin(self):
-        auth.PASSWORD_METHOD = "pbkdf2:sha256:1000"
-        conn = db.connect(self.db_path)
-        masa = auth.set_admin(conn, "Masa", "hangboard")
-        conn.close()
+        masa = self.make_admin(log_in=False)
         self.tried(self.slab, "2026-10-01", climber=masa, status=401)
         self.call("post", "/api/login", {"password": "hangboard"})
         t = self.tried(self.slab, "2026-10-01", climber=masa)

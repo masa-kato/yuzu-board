@@ -1,31 +1,20 @@
-import os
-import sys
-import tempfile
 import unittest
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from support import ApiTestCase, ScratchTestCase
 
-import db  # noqa: E402
-import geometry  # noqa: E402
-from app import create_app  # noqa: E402
+import db
+import geometry
+from app import create_app
+
 
 TRIANGLE = [[40.5, 30.25], [55.1, 31.0], [47.3, 44.8]]
 SQUARE = [[30, 30], [50, 30], [50, 50], [30, 50]]
 
 
-class VolumeApiTest(unittest.TestCase):
+class VolumeApiTest(ApiTestCase):
     def setUp(self):
-        fd, self.db_path = tempfile.mkstemp(suffix=".db")
-        os.close(fd)
-        self.client = create_app(self.db_path, tempfile.mkdtemp()).test_client()
-        conn = db.connect(self.db_path)
-        x, y = geometry.tnut_xy(5, 11)
-        conn.execute("INSERT INTO holds (name, x, y, tnut_col, tnut_row) VALUES ('Falcon', ?, ?, 5, 11)", (x, y))
-        conn.commit()
-        conn.close()
-
-    def tearDown(self):
-        os.remove(self.db_path)
+        super().setUp()
+        self.add_holds([("Falcon", 5, 11)])
 
     def create(self, points, color="black", status=201):
         res = self.client.post("/api/volumes", json={"points": points, "color": color})
@@ -115,21 +104,17 @@ class VolumeApiTest(unittest.TestCase):
         self.assertEqual(put([]), 200)
 
 
-class VolumeMigrationTest(unittest.TestCase):
+class VolumeMigrationTest(ScratchTestCase):
     def test_old_database_gains_faces(self):
-        fd, path = tempfile.mkstemp(suffix=".db")
-        os.close(fd)
-        try:
-            conn = db.connect(path)
-            conn.execute("""CREATE TABLE volumes (id INTEGER PRIMARY KEY, points TEXT NOT NULL,
-                            color TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT (datetime('now')))""")
-            conn.execute("INSERT INTO volumes (points, color) VALUES (?, 'black')", ('[[30, 30], [50, 30], [40, 45]]',))
-            conn.commit()
-            conn.close()
-            client = create_app(path, tempfile.mkdtemp()).test_client()
-            self.assertEqual(client.get("/api/volumes").get_json()[0]["faces"], [])
-        finally:
-            os.remove(path)
+        path = self.scratch("test.db")
+        conn = db.connect(path)
+        conn.execute("""CREATE TABLE volumes (id INTEGER PRIMARY KEY, points TEXT NOT NULL,
+                        color TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT (datetime('now')))""")
+        conn.execute("INSERT INTO volumes (points, color) VALUES (?, 'black')", ('[[30, 30], [50, 30], [40, 45]]',))
+        conn.commit()
+        conn.close()
+        client = create_app(path, self.scratch("uploads")).test_client()
+        self.assertEqual(client.get("/api/volumes").get_json()[0]["faces"], [])
 
 
 if __name__ == "__main__":

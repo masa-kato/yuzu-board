@@ -1,36 +1,17 @@
-import os
 import sqlite3
-import sys
-import tempfile
 import unittest
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from support import ApiTestCase, ScratchTestCase
 
-import db  # noqa: E402
-import geometry  # noqa: E402
-from app import create_app  # noqa: E402
+import db
+import geometry
+
 
 OLD_CHECK = "CHECK (grade IN ('easy', 'medium', 'hard', 'project'))"
 
 
-class WarmupTest(unittest.TestCase):
+class WarmupTest(ApiTestCase):
     """Warm-up is a grade below Easy."""
-
-    def setUp(self):
-        fd, self.db_path = tempfile.mkstemp(suffix=".db")
-        os.close(fd)
-        self.client = create_app(self.db_path, tempfile.mkdtemp()).test_client()
-
-    def tearDown(self):
-        os.remove(self.db_path)
-
-    def call(self, method, url, data=None, status=None):
-        res = getattr(self.client, method)(url, json=data)
-        if status is not None:
-            self.assertEqual(res.status_code, status, res.get_json())
-        else:
-            self.assertLess(res.status_code, 300, res.get_json())
-        return res.get_json()
 
     def route(self, name, grade):
         return self.call("post", "/api/routes", {"name": name, "grade": grade, "set_date": "2026-09-01", "holds": []})["id"]
@@ -48,7 +29,7 @@ class WarmupTest(unittest.TestCase):
         self.call("post", "/api/routes", {"name": "Nope", "grade": "warm", "set_date": "2026-09-01", "holds": []}, status=400)
 
 
-class GradeMigrationTest(unittest.TestCase):
+class GradeMigrationTest(ScratchTestCase):
     """A database from before Warm-up has `routes` and `drafts` tables whose
     CHECK lists four grades. Startup rebuilds them to take Warm-up, keeping
     every row, id and link."""
@@ -82,48 +63,44 @@ class GradeMigrationTest(unittest.TestCase):
                 for t in ("routes", "route_holds", "sends", "circuit_routes", "drafts", "draft_holds")}
 
     def test_old_tables_take_warmup(self):
-        fd, path = tempfile.mkstemp(suffix=".db")
-        os.close(fd)
-        try:
-            conn = self.old_database(path)
-            before = self.counts(conn)
-            with self.assertRaises(sqlite3.IntegrityError):
-                conn.execute("INSERT INTO routes (name, grade, set_date) VALUES ('W', 'warmup', '2026-09-05')")
-            conn.rollback()
-
-            db.init_db(conn)
-            self.assertEqual(self.counts(conn), before)
-            for table in ("routes", "drafts"):
-                sql = conn.execute("SELECT sql FROM sqlite_master WHERE name = ?", (table,)).fetchone()["sql"]
-                self.assertIn(db.GRADE_CHECK, sql)
-                self.assertTrue(sql.startswith("CREATE TABLE %s " % table) or sql.startswith('CREATE TABLE "%s"' % table), sql)
-            self.assertEqual([tuple(r) for r in conn.execute("SELECT id, parent_id, grade FROM routes ORDER BY id")],
-                             [(7, None, "easy"), (9, 7, "hard")])
-            self.assertEqual(conn.execute("PRAGMA foreign_key_check").fetchall(), [])
-            self.assertTrue(conn.execute("PRAGMA foreign_keys").fetchone()[0])
-            self.assertIsNotNone(conn.execute("SELECT 1 FROM sqlite_master WHERE name = 'idx_routes_parent'").fetchone())
-
-            # Warm-up is accepted now, and a new draft doesn't reuse a published one's id.
+        path = self.scratch("test.db")
+        conn = self.old_database(path)
+        before = self.counts(conn)
+        with self.assertRaises(sqlite3.IntegrityError):
             conn.execute("INSERT INTO routes (name, grade, set_date) VALUES ('W', 'warmup', '2026-09-05')")
-            conn.execute("INSERT INTO drafts (name, grade) VALUES ('New', 'warmup')")
-            self.assertEqual(conn.execute("SELECT MAX(id) FROM drafts").fetchone()[0], 7)
-            conn.commit()
+        conn.rollback()
 
-            # Links still cascade: deleting the base problem takes its variation,
-            # their holds, sends and circuit places, and the draft hanging off it.
-            conn.execute("DELETE FROM routes WHERE id = 7")
-            conn.commit()
-            after = self.counts(conn)
-            self.assertEqual((after["routes"], after["route_holds"], after["sends"], after["circuit_routes"]), (1, 0, 0, 0))
-            self.assertEqual([r["name"] for r in conn.execute("SELECT name FROM drafts")], ["New"])
+        db.init_db(conn)
+        self.assertEqual(self.counts(conn), before)
+        for table in ("routes", "drafts"):
+            sql = conn.execute("SELECT sql FROM sqlite_master WHERE name = ?", (table,)).fetchone()["sql"]
+            self.assertIn(db.GRADE_CHECK, sql)
+            self.assertTrue(sql.startswith("CREATE TABLE %s " % table) or sql.startswith('CREATE TABLE "%s"' % table), sql)
+        self.assertEqual([tuple(r) for r in conn.execute("SELECT id, parent_id, grade FROM routes ORDER BY id")],
+                         [(7, None, "easy"), (9, 7, "hard")])
+        self.assertEqual(conn.execute("PRAGMA foreign_key_check").fetchall(), [])
+        self.assertTrue(conn.execute("PRAGMA foreign_keys").fetchone()[0])
+        self.assertIsNotNone(conn.execute("SELECT 1 FROM sqlite_master WHERE name = 'idx_routes_parent'").fetchone())
 
-            # A second start leaves the tables alone.
-            sql = conn.execute("SELECT sql FROM sqlite_master WHERE name = 'routes'").fetchone()["sql"]
-            db.init_db(conn)
-            self.assertEqual(conn.execute("SELECT sql FROM sqlite_master WHERE name = 'routes'").fetchone()["sql"], sql)
-            conn.close()
-        finally:
-            os.remove(path)
+        # Warm-up is accepted now, and a new draft doesn't reuse a published one's id.
+        conn.execute("INSERT INTO routes (name, grade, set_date) VALUES ('W', 'warmup', '2026-09-05')")
+        conn.execute("INSERT INTO drafts (name, grade) VALUES ('New', 'warmup')")
+        self.assertEqual(conn.execute("SELECT MAX(id) FROM drafts").fetchone()[0], 7)
+        conn.commit()
+
+        # Links still cascade: deleting the base problem takes its variation,
+        # their holds, sends and circuit places, and the draft hanging off it.
+        conn.execute("DELETE FROM routes WHERE id = 7")
+        conn.commit()
+        after = self.counts(conn)
+        self.assertEqual((after["routes"], after["route_holds"], after["sends"], after["circuit_routes"]), (1, 0, 0, 0))
+        self.assertEqual([r["name"] for r in conn.execute("SELECT name FROM drafts")], ["New"])
+
+        # A second start leaves the tables alone.
+        sql = conn.execute("SELECT sql FROM sqlite_master WHERE name = 'routes'").fetchone()["sql"]
+        db.init_db(conn)
+        self.assertEqual(conn.execute("SELECT sql FROM sqlite_master WHERE name = 'routes'").fetchone()["sql"], sql)
+        conn.close()
 
 
 if __name__ == "__main__":

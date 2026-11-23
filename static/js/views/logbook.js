@@ -1,6 +1,6 @@
 import { monthCalendar, monthOf } from '../calendar.js';
 import { HEALTHY, drawHands, worstFinger } from '../hands.js';
-import { confirmDialog, dialog, faBadge, field, fmtDate, gradePips, h, icon, today, trackListScroll } from '../ui.js';
+import { confirmDialog, dialog, faBadge, field, fmtDate, gradePips, h, icon, stat, today, trackListScroll } from '../ui.js';
 
 function monthLabel(iso) {
   return new Date(`${iso}T00:00:00`).toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
@@ -9,10 +9,6 @@ function monthLabel(iso) {
 // "Sat, Nov 14" (the year is in the month heading above).
 function dayLabel(iso) {
   return new Date(`${iso}T00:00:00`).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
-}
-
-export function stat(value, label) {
-  return h('div', { class: 'stat' }, h('div', { class: 'stat-value' }, value), h('div', { class: 'stat-label' }, label));
 }
 
 export async function render(root, ctx, { day: openDay = null } = {}) {
