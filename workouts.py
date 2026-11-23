@@ -30,6 +30,7 @@ KIND_FIELDS = {
 # What a set needs before it counts as done, for each kind.
 KIND_MAIN = {"weight": "weight", "bodyweight": "reps", "timed": "seconds", "hang": "seconds"}
 RECENT_DAYS = 30
+POINTS_MAX = 12   # days in a workout card's progress line
 NAME_MAX = 80
 NOTE_MAX = 4000
 MAX_VARIANTS = 30
@@ -126,10 +127,19 @@ def best(kind, measure, sets):
     return top
 
 
+def daily_best(kind, measure, sets):
+    """Each day's best set among `sets` (oldest first), as `best` gives it."""
+    by_day = {}
+    for s in sets:
+        by_day.setdefault(s["workout_date"], []).append(s)
+    return [p for p in (best(kind, measure, day_sets) for day_sets in by_day.values()) if p]
+
+
 def reference(conn, kind, exercise_id, variant_id, date):
     """For a block on `date`: the sets of the last earlier day with this
-    exercise and variant, and the best set of the 30 days before `date`.
-    Sets left empty don't count."""
+    exercise and variant, the best set of the 30 days before `date`, and each
+    earlier day's best (the last POINTS_MAX), for its progress line. Sets left
+    empty don't count."""
     sets = variant_sets(conn, exercise_id, variant_id)
     measure = metric(kind, sets)
     earlier = [s for s in sets if s["workout_date"] < date and any(s[k] is not None for k in SET_FIELDS)]
@@ -142,6 +152,7 @@ def reference(conn, kind, exercise_id, variant_id, date):
         "metric": measure,
         "last": last,
         "max30": best(kind, measure, [s for s in earlier if s["workout_date"] >= since]),
+        "points": daily_best(kind, measure, earlier)[-POINTS_MAX:],
     }
 
 
@@ -210,6 +221,23 @@ def set_values(kind, data, existing=None):
         if key not in KIND_FIELDS[kind]:
             values[key] = None
     return values
+
+
+@bp.get("/api/workouts")
+@admin_required
+def workout_days():
+    """Every workout day, for the Workout tab's calendar: its tiredness and the
+    exercises done that day; and every exercise's name."""
+    conn = db.get_db()
+    days = {w["workout_date"]: {"tiredness": w["tiredness"], "exercises": []}
+            for w in conn.execute("SELECT workout_date, tiredness FROM workouts ORDER BY workout_date")}
+    for r in conn.execute(
+        """SELECT DISTINCT w.workout_date, we.exercise_id FROM workout_exercises we
+           JOIN workouts w ON w.id = we.workout_id ORDER BY w.workout_date, we.exercise_id"""
+    ):
+        days[r["workout_date"]]["exercises"].append(r["exercise_id"])
+    names = {r["id"]: r["name"] for r in conn.execute("SELECT id, name FROM exercises")}
+    return jsonify({"days": days, "names": names})
 
 
 @bp.get("/api/workouts/<date>")
@@ -497,10 +525,7 @@ def progress(exercise_id):
     for variant_id in variant_ids:
         sets = variant_sets(conn, exercise_id, variant_id)
         measure = metric(kind, sets)
-        by_day = {}
-        for s in sets:
-            by_day.setdefault(s["workout_date"], []).append(s)
-        points = [p for p in (best(kind, measure, day_sets) for day_sets in by_day.values()) if p]
+        points = daily_best(kind, measure, sets)
         if points:
             series.append({"variant_id": variant_id, "variant_name": names.get(variant_id), "metric": measure, "points": points})
     history = db.rows(conn.execute(

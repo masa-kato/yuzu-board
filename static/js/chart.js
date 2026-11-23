@@ -160,3 +160,27 @@ export function progressChart({ points, format, detail = () => '', label }) {
   observer.observe(el);
   return { el, destroy: () => observer.disconnect() };
 }
+
+const SPARK_W = 112;
+const SPARK_H = 36;
+
+// The same as a tiny line on a workout card: each earlier day's best, oldest
+// first (two or more), the latest dotted. No axes: hovering it, or its label,
+// says where it went from and to.
+export function sparkline({ points, format }) {
+  const values = points.map((p) => p.value);
+  const lo = Math.min(...values);
+  const hi = Math.max(...values);
+  const t0 = toMs(points[0].date);
+  const span = toMs(points[points.length - 1].date) - t0 || 1;
+  const x = (p) => 4 + ((toMs(p.date) - t0) / span) * (SPARK_W - 8);
+  const y = (v) => (hi === lo ? SPARK_H / 2 : 4 + (1 - (v - lo) / (hi - lo)) * (SPARK_H - 8));
+  const line = points.map((p, i) => `${i ? 'L' : 'M'}${x(p).toFixed(1)} ${y(p.value).toFixed(1)}`).join('');
+  const first = points[0];
+  const last = points[points.length - 1];
+  const said = `Best set each day: ${format(first.value)} on ${dateLabel(first.date)} to ${format(last.value)} on ${dateLabel(last.date)}`;
+  return svg('svg', { class: 'spark', width: SPARK_W, height: SPARK_H, viewBox: `0 0 ${SPARK_W} ${SPARK_H}`, role: 'img', 'aria-label': said },
+    svg('title', {}, said),
+    svg('path', { class: 'spark-line', d: line }),
+    svg('circle', { class: 'spark-dot', cx: x(last).toFixed(1), cy: y(last.value).toFixed(1), r: 3 }));
+}

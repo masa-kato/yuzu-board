@@ -106,6 +106,7 @@
   --outdoor-day: rgba(222, 150, 100, 0.22);
   --workout: #6cb4ee;
   --workout-soft: rgba(108, 180, 238, 0.14);
+  --workout-ink: #0b1b27;   /* a day's number on the full blue */
 
   /* type */
   --font-display: "Bricolage Grotesque", ui-sans-serif, system-ui, sans-serif;
@@ -297,6 +298,11 @@ select option { background: var(--surface); color: var(--text); }
 body.solo-mode .layout { grid-template-columns: minmax(0, 720px); justify-content: center; }
 body.solo-mode .board-pane { display: none; }
 
+/* the Workout tab: the panel wide, and a small calendar on its right */
+body.workout-mode .layout { grid-template-columns: minmax(0, 1fr) 300px; max-width: 1320px; }
+body.workout-mode .side-pane { grid-column: 2; grid-row: 1; }
+body.workout-mode .panel { grid-column: 1; grid-row: 1; }
+
 .board-pane {
   position: sticky;
   top: calc(var(--header-h) + 20px);
@@ -473,6 +479,9 @@ body.solo-mode .board-pane { display: none; }
 @media (max-width: 900px) {
   :root { --panel-pad: 16px; }
   .layout { grid-template-columns: minmax(0, 1fr); padding: 12px 16px 24px; gap: 14px; }
+  /* the Workout tab's calendar above the panel */
+  body.workout-mode .layout { grid-template-columns: minmax(0, 1fr); }
+  body.workout-mode .side-pane, body.workout-mode .panel { grid-column: auto; grid-row: auto; }
   .board-pane, .panel { position: static; }
   .panel { max-height: none; overflow: visible; }
   .board-frame { --board-max-h: 70vh; }
@@ -2298,14 +2307,21 @@ input[type="range"]:disabled { opacity: 0.4; cursor: not-allowed; }
 
 /* ---- views: workout (workout.js) ----------------------------------------------------- */
 
-.workout-blocks { display: flex; flex-direction: column; gap: 12px; }
+/* the day's cards, two to a row given room */
+.workout-blocks { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 380px), 1fr)); align-items: start; gap: 12px; }
+.workout-blocks > p { grid-column: 1 / -1; }
 .workout-block { gap: 10px; border-left: 3px solid var(--workout); }
 .block-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
 .block-name { font-size: 16px; font-family: var(--font-display); }
 .block-head .icon-btn { margin: -4px -4px 0 0; }
-.block-ref { display: flex; flex-direction: column; gap: 2px; color: var(--text-2); font-size: 13.5px; }
+/* what to beat, and the line of each earlier day's best (chart.js sparkline) beside it */
+.block-ref { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; color: var(--text-2); font-size: 13.5px; }
+.block-ref-text { flex: 1 1 240px; min-width: 0; display: flex; flex-direction: column; gap: 2px; }   /* the line goes under it on a narrow card */
 .block-ref p { margin: 0; }
 .block-ref-label { margin-right: 8px; color: var(--muted); font-size: 12.5px; font-weight: 600; }
+.spark { flex: none; overflow: visible; }
+.spark-line { fill: none; stroke: var(--workout); stroke-width: 1.75; stroke-linejoin: round; stroke-linecap: round; }
+.spark-dot { fill: var(--workout); }
 /* a set a row: its number, an input per column, delete */
 .set-rows { display: flex; flex-direction: column; gap: 6px; }
 .set-row { display: grid; grid-template-columns: 28px repeat(var(--cols), minmax(0, 1fr)) 32px; align-items: center; gap: 6px; }
@@ -2317,15 +2333,11 @@ input[type="range"]:disabled { opacity: 0.4; cursor: not-allowed; }
 .add-exercise { align-self: flex-start; }
 .tiredness .chip { height: 32px; }
 
-/* Add exercise (workout.js pickExercise): Recent on top, then each exercise
-   with a bar of buttons, one per variant. The popup fits the screen and only
-   the list scrolls, fading out at its foot. */
-.xp-dialog { width: min(540px, calc(100vw - 24px)); max-height: calc(100dvh - 24px); overflow: hidden; }
-.xp-dialog[open] { display: flex; flex-direction: column; }
-.xp-dialog .dialog-form { flex: 1; min-height: 0; gap: 14px; padding-bottom: 16px; }
-.xp-dialog .dialog-form > .xp { flex: 1; min-height: 0; gap: 14px; }
-.xp > :not(.xp-list), .xp-dialog .dialog-title, .xp-dialog .dialog-actions { flex: none; }
-.xp-label, .xp-group { color: var(--muted); font-size: 11.5px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
+/* The Exercises tab (workout.js renderExercises): Recent on top, then each
+   exercise with a bar of buttons, one per variant, each adding it to the
+   day's workout; two exercises to a row given room. */
+.xp-target { margin: -8px 0 0; color: var(--muted); font-size: 13.5px; }
+.xp-label, .wm-label { color: var(--muted); font-family: inherit; font-size: 11.5px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
 .xp-recent { display: flex; flex-direction: column; gap: 8px; }
 .xp-recent-row { display: flex; flex-wrap: wrap; gap: 8px; }
 .xp-recent-btn {
@@ -2345,51 +2357,24 @@ input[type="range"]:disabled { opacity: 0.4; cursor: not-allowed; }
   cursor: pointer;
   transition: background 0.15s;
 }
-.xp-recent-btn:hover { background: rgba(237, 187, 28, 0.22); }
+.xp-recent-btn:hover:not(:disabled) { background: rgba(237, 187, 28, 0.22); }
 .xp-recent-btn .icon { color: var(--yuzu); }
 .xp-recent-btn span { color: var(--text-2); font-weight: 500; }
-.xp-list {
-  flex: 1 1 auto;
-  min-height: 140px;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  overflow-y: auto;
-  margin: 0 -22px;
-  padding: 2px 22px 18px;
-  -webkit-mask-image: linear-gradient(#000 calc(100% - 28px), transparent);
-  mask-image: linear-gradient(#000 calc(100% - 28px), transparent);
-}
-.xp-group { margin-top: 8px; }
-.xp-group:first-child { margin-top: 0; }
-.xp-ex { display: flex; flex-direction: column; gap: 7px; }
-.xp-ex-head { display: flex; align-items: baseline; gap: 8px; }
-.xp-name { margin-right: auto; color: var(--text); font-size: 16px; font-weight: 650; }
-.xp-add-variant {
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  align-self: center;
-  height: 26px;
-  padding: 0 9px 0 7px;
-  background: none;
-  border: none;
-  border-radius: var(--r-pill);
-  box-shadow: inset 0 0 0 1px var(--line-strong);
-  color: var(--text-2);
-  font: inherit;
-  font-size: 12.5px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: background 0.15s, color 0.15s;
-}
-.xp-add-variant:hover { background: var(--surface-2); color: var(--text); }
-.xp-add-variant .icon { color: var(--yuzu); }
+.xp-list { display: flex; flex-direction: column; gap: 10px; }
+.xp-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr)); gap: 16px 24px; }
+.xp-ex { display: flex; flex-direction: column; gap: 7px; min-width: 0; }
+/* the name, which opens its progress, and when it was last done, on the right */
+.xp-ex-head { display: flex; align-items: baseline; gap: 12px; }
+.xp-name { display: inline-flex; align-items: center; gap: 2px; min-width: 0; margin-right: auto; color: var(--text); font-size: 16px; font-weight: 650; text-decoration: none; }
+.xp-name .icon { flex: none; color: var(--muted); transition: transform 0.15s, color 0.15s; }
+.xp-name:hover .icon { color: var(--text); transform: translateX(2px); }
+.xp-last { flex: none; color: var(--muted); font-size: 12.5px; font-weight: 500; text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .xp-date { color: var(--muted); font-size: 12px; font-weight: 500; font-variant-numeric: tabular-nums; }
-.xp-seg { display: flex; gap: 2px; overflow: hidden; border-radius: var(--r-md); }
+/* equal buttons, onto a second row before any label is cut short */
+.xp-seg { display: flex; flex-wrap: wrap; gap: 2px; overflow: hidden; border-radius: var(--r-md); }
 .xp-seg button {
   flex: 1 1 0;
-  min-width: 0;
+  min-width: max-content;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -2413,29 +2398,19 @@ input[type="range"]:disabled { opacity: 0.4; cursor: not-allowed; }
 .xp-seg button .xp-date { font-size: 11.5px; }
 .xp-seg button.xp-added { background: var(--sent-soft); color: var(--leaf-text); cursor: default; }
 .xp-seg button.xp-added .icon { color: var(--leaf-text); }
-.xp-new {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  align-self: flex-start;
-  height: 38px;
-  padding: 0 14px;
-  background: none;
-  border: 1px dashed var(--line-strong);
-  border-radius: var(--r-pill);
-  color: var(--yuzu);
-  font: inherit;
-  font-size: 14px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: background 0.15s;
+/* + Variant, at the bar's end: only as wide as it needs */
+.xp-seg button.xp-seg-new { flex: none; flex-direction: row; gap: 4px; padding: 4px 12px; color: var(--text-2); font-size: 13px; }
+.xp-seg-new .icon { color: var(--yuzu); }
+/* phones: + Variant just its +, and the buttons a little tighter, so three
+   variants still fit on a row */
+@media (max-width: 480px) {
+  .xp-seg button { padding: 4px; font-size: 13px; }
+  .xp-seg-label { gap: 4px; }
+  .xp-seg-label .icon { width: 13px; height: 13px; }
+  .xp-seg button.xp-seg-new { padding: 4px 13px; }
+  .xp-seg-new-label { display: none; }
 }
-.xp-new:hover { background: var(--yuzu-soft); }
 
-.exercise-list { display: flex; flex-direction: column; gap: 2px; }
-.exercise-list .usage-head { margin-top: 10px; }
-.exercise-list .usage-head:first-child { margin-top: 0; }
-.exercise-row-text { display: flex; flex-direction: column; min-width: 0; }
 .variant-chip { padding-left: 0; }
 .variant-name { height: 100%; padding: 0 4px 0 11px; background: none; border: none; color: inherit; font: inherit; cursor: pointer; }
 .section-title { font-size: 18px; }
@@ -2696,6 +2671,69 @@ body.calendar-mode .board-pane { display: none; }
 .cal-tip-part { display: flex; flex-direction: column; gap: 1px; }
 .cal-tip-part strong { color: var(--text); font-size: 13px; }
 
+/* The Workout tab's calendar (workout.js): small, its workout days alone */
+.calendar.compact { margin: 0; padding: 14px; }   /* filling its column */
+.calendar.compact .cal-head { gap: 4px; margin-bottom: 10px; }
+/* the count on a line of its own, so lighting up an exercise never moves the days */
+.calendar.compact .cal-title { flex-direction: column; flex-wrap: nowrap; align-items: stretch; gap: 1px; }
+.calendar.compact .cal-title h2 { font-size: 16px; }
+.calendar.compact .cal-summary { overflow: hidden; font-size: 12px; white-space: nowrap; text-overflow: ellipsis; }
+.calendar.compact .cal-grid { gap: 3px; }
+.calendar.compact .cal-weekday { padding: 0 0 2px; font-size: 11px; text-align: center; }
+/* with no dots, the workouts stand out by their blue and the other days stay quiet */
+.calendar.compact .cal-day {
+  min-height: 0;
+  aspect-ratio: 1;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  background: rgb(var(--tint-rgb) / 0.035);
+  color: var(--muted);
+}
+.calendar.compact .cal-day.blank { background: transparent; }
+.calendar.compact .cal-day.logged { color: var(--text); }
+.calendar.compact .cal-fill .workout { background: rgba(108, 180, 238, 0.3); }
+.calendar.compact .cal-num { width: 24px; height: 24px; font-size: 12.5px; }
+/* an exercise's days lit up in full blue, the other workouts faded back */
+.calendar .cal-day.lit.logged { color: var(--workout-ink); }
+.calendar .cal-day.lit .cal-fill i { background: var(--workout); }
+.calendar.highlighting .cal-day.logged:not(.lit) .cal-fill { opacity: 0.35; }
+
+/* the month the Workout tab's calendar shows, summed up under it */
+.workout-pane { display: flex; flex-direction: column; gap: 12px; }
+.workout-month {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 14px;
+  background: var(--surface);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-2);
+}
+.wm-line { display: flex; flex-direction: column; gap: 3px; margin: 0; color: var(--text); font-size: 14px; font-weight: 600; }
+.wm-top { display: flex; flex-direction: column; }
+.wm-top .wm-label { margin-bottom: 4px; }
+.wm-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  width: calc(100% + 16px);
+  margin: 0 -8px;
+  padding: 6px 8px;
+  background: none;
+  border: none;
+  border-radius: var(--r-sm);
+  color: var(--text);
+  font: inherit;
+  font-size: 13.5px;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.wm-row:hover { background: var(--surface-2); }
+.wm-name { flex: 1; min-width: 0; overflow: hidden; font-weight: 600; white-space: nowrap; text-overflow: ellipsis; }
+.wm-count { flex: none; color: var(--muted); font-size: 12.5px; font-variant-numeric: tabular-nums; }
+
 /* phones (and the narrow column under 1100px): small square days with dots */
 @media (max-width: 1100px) {
   .cal-day { min-height: 0; aspect-ratio: 1; align-items: center; justify-content: center; gap: 3px; padding: 2px; }
@@ -2712,6 +2750,9 @@ body.calendar-mode .board-pane { display: none; }
   .calendar { padding: 14px; }
   .cal-grid { gap: 4px; }
   .cal-title h2 { font-size: 19px; }
+  /* The Workout tab's stays short above the workout: low days, no summary. */
+  .calendar.compact .cal-day { aspect-ratio: auto; height: 32px; }
+  .workout-month { display: none; }
   .log-day { scroll-margin-top: 16px; }
 }
 
@@ -2719,6 +2760,7 @@ body.calendar-mode .board-pane { display: none; }
 
 /* each panel view eases in */
 .view { animation: view-in 0.18s var(--ease); }
+.view.still { animation: none; }   /* within a page: a sub-tab, a day (app.js) */
 @keyframes view-in { from { opacity: 0; transform: translateY(4px); } }
 
 @media (prefers-reduced-motion: reduce) {

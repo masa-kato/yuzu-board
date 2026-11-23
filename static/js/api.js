@@ -112,7 +112,10 @@ export const api = {
   deleteOutdoorClimb: (id) => request('DELETE', `/api/outdoor/climbs/${id}`),
 
   // The admin's workouts (workouts.py), one a day by date. A day's workout
-  // comes with each exercise's sets and reference (last time, 30-day best).
+  // comes with each exercise's sets and reference (last time, 30-day best,
+  // earlier days' bests). workoutDays: {days: {date: {tiredness, exercises:
+  // [ids]}}, names: {id: name}}, for the Workout tab's calendar.
+  workoutDays: () => request('GET', '/api/workouts'),
   workout: (date) => request('GET', `/api/workouts/${date}`),
   updateWorkout: (date, data) => request('PUT', `/api/workouts/${date}`, data),
   deleteWorkout: (date) => request('DELETE', `/api/workouts/${date}`),

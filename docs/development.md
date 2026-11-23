@@ -86,7 +86,7 @@ route: {
 },
 ```
 
-The other keys are `admin` (the admin only), `computer` (not on phones), `layout` (`'calendar'` puts the calendar in the wall's place; `'solo'` centers the panel alone), `list` (only the list scrolls) and `pinned` (on phones, the board stays above that list).
+The other keys are `admin` (the admin only), `computer` (not on phones), `layout` (`'calendar'` puts the calendar in the wall's place; `'workout'` puts a small one to the right of the panel, kept from one such page to the next; `'solo'` centers the panel alone), `list` (only the list scrolls), `pinned` (on phones, the board stays above that list) and `still` (going from one of the page's links to another, such as the Workout tab's sub-tabs or days, the page stays up until the next is drawn, which doesn't ease in).
 
 `render(root, ctx, params)` draws into `root` (with `root.replaceChildren(...)`) and may return a handle:
 
@@ -225,7 +225,8 @@ Logging sends and tries *as the admin* needs the admin logged in.
 
 | | |
 |---|---|
-| `GET, PUT, DELETE /api/workouts/<date>` | A day's workout with each exercise's sets, its last time and 30-day best; `PUT` sets `tiredness` and `notes` |
+| `GET /api/workouts` | `{days: {date: {tiredness, exercises: [ids]}}, names: {id: name}}`: every workout day, for the Workout tab's calendar |
+| `GET, PUT, DELETE /api/workouts/<date>` | A day's workout with each exercise's sets and its `reference`: last time, the 30-day best, and `points`, each earlier day's best (the last 12); `PUT` sets `tiredness` and `notes` |
 | `POST /api/workouts/<date>/exercises`; `DELETE /api/workout-exercises/<id>` | Adds an exercise (and variant) to the day; takes one out |
 | `POST /api/workout-exercises/<id>/sets`; `PUT, DELETE /api/sets/<id>` | Sets: `reps`, `weight`, `seconds`, `edge_mm`, as the exercise's kind uses them |
 | `GET, POST /api/exercises`; `PUT, DELETE /api/exercises/<id>` | Exercises and their variants |

@@ -1,16 +1,17 @@
 // The admin's Workout tab (workouts.py): a day's workout (#/workout, or
-// ?date=), the exercise list (#/workout/exercises) and an exercise's progress
-// (#/exercise/<id>). The calendar in the side pane picks the day.
+// ?date=), the exercise list to add to it from (#/workout/exercises, the same
+// ?date=) and an exercise's progress (#/exercise/<id>). A small calendar of the
+// workout days, on the right, picks the day.
 
-import { sideCalendar } from '../calendar.js';
-import { progressChart } from '../chart.js';
-import { confirmDialog, dialog, field, fmtDate, h, icon, promptDialog, today } from '../ui.js';
+import { monthCalendar, monthOf } from '../calendar.js';
+import { progressChart, sparkline } from '../chart.js';
+import { confirmDialog, dialog, field, fmtDate, h, icon, plural, promptDialog, shortDate, today } from '../ui.js';
 
 export const KINDS = {
-  weight: { label: 'Weight × reps', group: 'Weights' },
-  bodyweight: { label: 'Bodyweight reps', group: 'Bodyweight' },
-  timed: { label: 'Timed hold', group: 'Timed holds' },
-  hang: { label: 'Hang (time, weight, edge)', group: 'Hangs' },
+  weight: { label: 'Weight × reps' },
+  bodyweight: { label: 'Bodyweight reps' },
+  timed: { label: 'Timed hold' },
+  hang: { label: 'Hang (time, weight, edge)' },
 };
 const TIREDNESS = ['Fresh', 'Good', 'Okay', 'Tired', 'Wrecked'];
 const NAME_MAX = 80;
@@ -56,16 +57,137 @@ function dayTitle(date) {
   return new Date(`${date}T00:00:00`).toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' });
 }
 
-function subTabs(current) {
+// The tab's links keep the day, unless it's today.
+const dateQuery = (date) => (date && date !== today() ? `?date=${date}` : '');
+const workoutDay = (date) => `#/workout${dateQuery(date)}`;
+const exercisesFor = (date) => `#/workout/exercises${dateQuery(date)}`;
+const exercisePage = (id, date) => `#/exercise/${id}${dateQuery(date)}`;
+
+// Workout | Exercises, for the day; Workout counts the day's exercises.
+function subTabs(current, date, count) {
   const tab = (key, label, hash) => h('a', { href: hash, 'aria-current': key === current ? 'page' : null }, label);
-  return h('nav', { class: 'segmented-nav', 'aria-label': 'Workout' },
-    tab('workout', 'Workout', '#/workout'), tab('exercises', 'Exercises', '#/workout/exercises'));
+  const counter = h('span', { class: 'segment-count' }, count || '');
+  return {
+    el: h('nav', { class: 'segmented-nav', 'aria-label': 'Workout' },
+      tab('workout', ['Workout', counter], workoutDay(date)), tab('exercises', 'Exercises', exercisesFor(date))),
+    setCount: (n) => (counter.textContent = n || ''),
+  };
 }
 
-const workoutDay = (date) => `#/workout?date=${date}`;
+// ---- the calendar on the right ------------------------------------------------------
 
-function calendar(ctx, selected) {
-  sideCalendar(ctx, { climberId: ctx.state.adminId, selected, link: workoutDay });
+const TOP_MAX = 5;   // exercises in the month's summary
+
+// The tab's pages share one pane, kept while you go between them (app.js
+// keeps the side pane): a small calendar of the workout days, and the month
+// it shows summed up under it. Pointing at an exercise lights up its days; an
+// exercise's own page keeps its days lit (`pinned`).
+let pane = null;
+let paneData = null;   // api.workoutDays(), as last loaded
+
+function workoutPane(ctx, { selected, pinned = null }) {
+  if (!pane || !ctx.sidePane.contains(pane.el)) {
+    pane = makePane(ctx);
+    ctx.sidePane.replaceChildren(pane.el);
+  }
+  pane.update(ctx, selected, pinned);
+  return pane;
+}
+
+function makePane(ctx) {
+  const el = h('div', { class: 'workout-pane' });
+  const summary = h('section', { class: 'workout-month', 'aria-label': 'The month' });
+  let calendar = null;
+  let month = null;
+  let selected = null;
+  let pinned = null;
+  let pointed = null;   // the exercise pointed at
+
+  const name = (id) => paneData.names[id] || '';
+
+  // Lights up the days of exercise `id` (or else the pinned one's).
+  function light(id = null) {
+    pointed = id;
+    if (!calendar) return;   // drawn with it once the days are in
+    const shown = id ?? pinned;
+    const label = shown != null && name(shown);
+    calendar.highlight(label ? Object.keys(paneData.days).filter((d) => paneData.days[d].exercises.includes(shown)) : null, label);
+  }
+
+  function drawSummary() {
+    const days = Object.keys(paneData.days).filter((d) => monthOf(d) === month).map((d) => paneData.days[d]);
+    summary.hidden = !days.length;
+    if (!days.length) return;
+    const rated = days.map((d) => d.tiredness).filter(Boolean);
+    const average = rated.length ? rated.reduce((a, b) => a + b, 0) / rated.length : null;
+    const counts = new Map();
+    for (const d of days) for (const id of d.exercises) counts.set(id, (counts.get(id) || 0) + 1);
+    const top = [...counts].sort((a, b) => b[1] - a[1] || name(a[0]).localeCompare(name(b[0]))).slice(0, TOP_MAX);
+    summary.replaceChildren(
+      h('p', { class: 'wm-line' }, h('span', { class: 'wm-label' }, 'Average tiredness'),
+        average == null ? h('span', { class: 'muted' }, 'Not rated') : `${num(Number(average.toFixed(1)))} · ${TIREDNESS[Math.round(average) - 1]}`),
+      top.length > 0 && h('div', { class: 'wm-top' },
+        h('span', { class: 'wm-label' }, 'Done most'),
+        top.map(([id, n]) => h('button', {
+          type: 'button', class: 'wm-row',
+          onPointerenter: (e) => e.pointerType === 'mouse' && light(id),
+          onPointerleave: () => light(),
+          onFocus: () => light(id),
+          onBlur: () => light(),
+          onClick: () => ctx.go(exercisePage(id, selected)),
+        }, h('span', { class: 'wm-name' }, name(id)), h('span', { class: 'wm-count' }, plural(n, 'day'))))));
+  }
+
+  function draw() {
+    if (!paneData) return;
+    const days = Object.fromEntries(Object.keys(paneData.days).map((d) => [d, { workout: true }]));
+    if (calendar) {
+      calendar.setDays(days);
+    } else {
+      month = monthOf(selected);
+      calendar = monthCalendar({
+        month, days, selected, workoutOnly: true, compact: true,
+        onPick: (date) => ctx.go(workoutDay(date)),
+        onMonth: (m) => {
+          month = m;
+          drawSummary();
+        },
+      });
+      el.replaceChildren(calendar.el, summary);
+    }
+    light(pointed);
+    drawSummary();
+  }
+
+  // Draws again once the days are loaded (after anything that changes them).
+  function refresh() {
+    ctx.api.workoutDays().then((data) => {
+      paneData = data;
+      draw();
+    }).catch(() => {});
+  }
+
+  return {
+    el,
+    light,
+    refresh,
+    update(c, date, exerciseId) {
+      ctx = c;
+      pinned = exerciseId;
+      pointed = null;
+      if (!calendar) {
+        selected = date;
+        draw();   // at once, with the days last loaded, if any
+      } else {
+        if (date !== selected) {
+          selected = date;
+          calendar.select(date);
+        }
+        light();
+      }
+      refresh();
+    },
+  };
 }
 
 // ---- a new exercise --------------------------------------------------------------
@@ -94,15 +216,10 @@ export async function newExercise(ctx) {
   }
 }
 
+// ---- what can be added: an exercise and variant ------------------------------------
+
 const RECENT_DAYS = 14;
 const RECENT_MAX = 6;
-
-// "Nov 12", with the year when it isn't this one.
-function shortDate(iso) {
-  const d = new Date(`${iso}T00:00:00`);
-  const sameYear = d.getFullYear() === new Date().getFullYear();
-  return d.toLocaleDateString(undefined, sameYear ? { month: 'short', day: 'numeric' } : { month: 'short', day: 'numeric', year: 'numeric' });
-}
 
 function daysAgo(n) {
   const d = new Date();
@@ -114,156 +231,50 @@ function daysAgo(n) {
 // before they were added) is "Standard".
 const variantLabel = (exercise, name) => name || (exercise.variants.length ? 'Standard' : null);
 
-// Picks an exercise and variant to add. On top, one tap for what you've done
-// in the last two weeks; below, every exercise by kind, its variants as a bar
-// of buttons, each saying when you last did it. Ones already in the workout
-// (`done`, of "exerciseId:variantId") read "Added". "+ Variant" adds a variant
-// to an exercise and picks it. Resolves with {exercise_id, variant_id}, 'new',
-// or null.
-async function pickExercise(ctx, exercises, done) {
-  const key = (e, v) => `${e.id}:${v ? v.id : ''}`;
-  // Its variants, and doing it without one when it has none or was done that way.
-  const choices = (e) => (e.variants.length ? [...(e.plain_last_date ? [null] : []), ...e.variants] : [null]);
-  const lastDate = (e, v) => (v ? v.last_date : e.plain_last_date);
-  const label = (e, v) => variantLabel(e, v?.name);
-  const fullName = (e, v) => (label(e, v) ? `${e.name} · ${label(e, v)}` : e.name);
-
-  const since = daysAgo(RECENT_DAYS);
-  const recent = exercises.flatMap((e) => choices(e).map((v) => ({ e, v, date: lastDate(e, v) })))
-    .filter((c) => c.date && c.date >= since && !done.has(key(c.e, c.v)))
-    .sort((a, b) => b.date.localeCompare(a.date))
-    .slice(0, RECENT_MAX);
-  const recentRow = recent.length > 0 && h('div', { class: 'xp-recent' },
-    h('span', { class: 'xp-label' }, 'Recent'),
-    h('div', { class: 'xp-recent-row' }, recent.map(({ e, v }) => h('button', {
-      type: 'submit', class: 'xp-recent-btn', value: key(e, v), 'aria-label': `Add ${fullName(e, v)}`,
-    }, icon('plus', { size: 15 }), e.name, label(e, v) && h('span', {}, label(e, v))))));
-
-  // A variant's segment of the bar (or the one "Add" of an exercise without variants).
-  const segment = (e, v) => {
-    const added = done.has(key(e, v));
-    const date = lastDate(e, v);
-    return h('button', {
-      type: 'submit', value: key(e, v), disabled: added, class: added ? 'xp-added' : null,
-      'aria-label': added ? `${fullName(e, v)}, already added` : `Add ${fullName(e, v)}`,
-    },
-    h('span', { class: 'xp-seg-label' }, icon(added ? 'check' : 'plus', { size: 15 }), added ? 'Added' : label(e, v) || 'Add'),
-    added ? label(e, v) && h('span', { class: 'xp-date' }, label(e, v)) : date && h('span', { class: 'xp-date' }, shortDate(date)));
-  };
-  // A variant the list doesn't have yet: named, added to the exercise, and
-  // picked straight away, which closes the popup with it.
-  const newVariant = async (e, button) => {
-    const name = await promptDialog(`New variant of ${e.name}`, 'Name', 'e.g. Incline', { maxLength: NAME_MAX });
-    if (!name) return;
-    try {
-      const updated = await ctx.api.addVariant(e.id, name);
-      Object.assign(e, updated);
-      const variant = updated.variants.reduce((a, b) => (b.id > a.id ? b : a));
-      ctx.toast(`Added ${variant.name} to ${e.name}.`, 'success');
-      button.closest('dialog').close(key(e, variant));
-    } catch (err) {
-      ctx.toast(err.message, 'error');
-    }
-  };
-  const rows = exercises.map((e) => ({
-    e,
-    el: h('div', { class: 'xp-ex' },
-      h('div', { class: 'xp-ex-head' },
-        h('span', { class: 'xp-name' }, e.name),
-        h('span', { class: 'xp-date' }, e.last_date ? `Last ${shortDate(e.last_date)}` : 'Not done yet'),
-        h('button', {
-          type: 'button', class: 'xp-add-variant', title: `Add a variant to ${e.name}`, 'aria-label': `Add a variant to ${e.name}`,
-          onClick: (ev) => newVariant(e, ev.currentTarget),
-        }, icon('plus', { size: 13 }), 'Variant')),
-      h('div', { class: 'xp-seg', role: 'group', 'aria-label': e.name }, choices(e).map((v) => segment(e, v)))),
-  }));
-  const groups = Object.entries(KINDS)
-    .map(([kind, { group }]) => ({ head: h('div', { class: 'xp-group' }, group), members: rows.filter((r) => r.e.kind === kind) }))
-    .filter((g) => g.members.length);
-  const none = h('p', { class: 'muted', hidden: true }, 'No exercises match. Add it as a new one below.');
-  const list = h('div', { class: 'xp-list' }, groups.map((g) => [g.head, g.members.map((r) => r.el)]), none);
-
-  const search = h('input', {
-    type: 'search', class: 'input', placeholder: 'Search exercises', autocomplete: 'off', 'aria-label': 'Search exercises',
-    // Enter would submit the dialog with the first exercise in it.
-    onKeydown: (e) => {
-      if (e.key === 'Enter') e.preventDefault();
-    },
-    onInput: () => {
-      const q = search.value.trim().toLowerCase();
-      for (const r of rows) r.el.hidden = !!q && !r.e.name.toLowerCase().includes(q) && !r.e.variants.some((v) => v.name.toLowerCase().includes(q));
-      for (const g of groups) g.head.hidden = g.members.every((r) => r.el.hidden);
-      if (recentRow) recentRow.hidden = !!q;
-      none.hidden = rows.some((r) => !r.el.hidden);
-      list.scrollTop = 0;
-    },
-  });
-  const result = await dialog({
-    title: 'Add an exercise',
-    className: 'xp-dialog',
-    body: h('div', { class: 'xp' }, recentRow, search, list,
-      h('button', { type: 'submit', class: 'xp-new', value: 'new' }, icon('plus', { size: 15 }), 'New exercise…')),
-    actions: [{ value: 'cancel', label: 'Cancel' }],
-  });
-  if (!result || result === 'new') return result;
-  const [exerciseId, variantId] = result.split(':');
-  return { exercise_id: Number(exerciseId), variant_id: variantId ? Number(variantId) : null };
-}
+// An exercise's choices: its variants, and doing it without one when it has
+// none or was done that way (v null). Keyed "exerciseId:variantId".
+const choices = (e) => (e.variants.length ? [...(e.plain_last_date ? [null] : []), ...e.variants] : [null]);
+const choiceKey = (e, v) => `${e.id}:${v ? v.id : ''}`;
+const lastDate = (e, v) => (v ? v.last_date : e.plain_last_date);
+const choiceLabel = (e, v) => variantLabel(e, v?.name);
+const choiceName = (e, v) => (choiceLabel(e, v) ? `${e.name} · ${choiceLabel(e, v)}` : e.name);
 
 // ---- a day's workout --------------------------------------------------------------
 
 export async function render(root, ctx, { date = null } = {}) {
   date = date || today();
-  const [workout, exercises] = await Promise.all([ctx.api.workout(date), ctx.api.exercises()]);
+  const pane = workoutPane(ctx, { selected: date });
+  const workout = await ctx.api.workout(date);
   if (ctx.stale()) return;
-  calendar(ctx, date);
   let current = workout;
 
+  const tabs = subTabs('workout', date, workout.blocks.length);
   const blocks = h('div', { class: 'workout-blocks' });
-
-  async function addExercise() {
-    for (;;) {
-      const done = new Set(current.blocks.map((b) => `${b.exercise_id}:${b.variant_id ?? ''}`));
-      const choice = await pickExercise(ctx, exercises, done);
-      if (!choice) return;
-      if (choice === 'new') {
-        const created = await newExercise(ctx);
-        if (created) exercises.push(created);
-        exercises.sort((a, b) => a.name.localeCompare(b.name));
-        continue;   // back to the list, with it in
-      }
-      try {
-        current = await ctx.api.addWorkoutExercise(date, choice);
-        redraw();
-        // Straight into its first set.
-        blocks.lastElementChild?.querySelector('input')?.focus();
-      } catch (err) {
-        ctx.toast(err.message, 'error');
-      }
-      return;
-    }
-  }
 
   async function removeBlock(block) {
     if (filledSets(block.sets).length && !(await confirmDialog(`Remove ${blockName(block)}?`, 'Its sets from this workout go too.', 'Remove'))) return;
     try {
       current = await ctx.api.removeWorkoutExercise(block.id);
       redraw();
+      pane.refresh();
     } catch (err) {
       ctx.toast(err.message, 'error');
     }
   }
 
-  // What was done last time and the best of the last 30 days, to beat.
+  // What was done last time and the best of the last 30 days, to beat, with
+  // the line of each earlier day's best.
   function referenceLine(block) {
-    const { last, max30, metric } = block.reference;
+    const { last, max30, metric, points } = block.reference;
     if (!last && !max30) return h('p', { class: 'block-ref muted small' }, 'First time — no history yet.');
     return h('div', { class: 'block-ref' },
-      last && h('p', {}, h('span', { class: 'block-ref-label' }, `Last time · ${fmtDate(last.date)}`),
-        last.sets.map((s) => formatSet(block.kind, s)).join(', ')),
-      h('p', {}, h('span', { class: 'block-ref-label' }, '30-day best'),
-        max30 ? [formatMetric(metric, block.kind, max30.value), h('span', { class: 'muted' }, ` · ${fmtDate(max30.date)}`)]
-          : h('span', { class: 'muted' }, 'nothing in the last 30 days')));
+      h('div', { class: 'block-ref-text' },
+        last && h('p', {}, h('span', { class: 'block-ref-label' }, `Last time · ${fmtDate(last.date)}`),
+          last.sets.map((s) => formatSet(block.kind, s)).join(', ')),
+        h('p', {}, h('span', { class: 'block-ref-label' }, '30-day best'),
+          max30 ? [formatMetric(metric, block.kind, max30.value), h('span', { class: 'muted' }, ` · ${fmtDate(max30.date)}`)]
+            : h('span', { class: 'muted' }, 'nothing in the last 30 days'))),
+      points.length > 1 && sparkline({ points, format: (v) => formatMetric(metric, block.kind, v) }));
   }
 
   function setRow(block, s, i) {
@@ -318,7 +329,7 @@ export async function render(root, ctx, { date = null } = {}) {
     };
     return h('section', { class: 'card workout-block', dataset: { block: block.id } },
       h('div', { class: 'block-head' },
-        h('button', { type: 'button', class: 'link block-name', title: 'Progress', onClick: () => ctx.go(`#/exercise/${block.exercise_id}`) }, blockName(block)),
+        h('button', { type: 'button', class: 'link block-name', title: 'Progress', onClick: () => ctx.go(exercisePage(block.exercise_id, date)) }, blockName(block)),
         h('button', { type: 'button', class: 'icon-btn danger', title: 'Remove from this workout', 'aria-label': `Remove ${blockName(block)}`, onClick: () => removeBlock(block) },
           icon('trash', { size: 15 }))),
       referenceLine(block),
@@ -336,6 +347,7 @@ export async function render(root, ctx, { date = null } = {}) {
     try {
       current = { ...(await ctx.api.updateWorkout(date, data)), blocks: current.blocks };
       redraw();
+      pane.refresh();
     } catch (err) {
       ctx.toast(err.message, 'error');
     }
@@ -362,68 +374,154 @@ export async function render(root, ctx, { date = null } = {}) {
     blocks.replaceChildren(...(current.blocks.length
       ? current.blocks.map(blockCard)
       : [h('p', { class: 'muted' }, date === today() ? 'Nothing logged yet today. Add your first exercise.' : 'No workout logged this day.')]));
+    tabs.setCount(current.blocks.length);
     deleteButton.hidden = current.id == null;
-    // The calendar marks the day once there's a workout (and unmarks it once there isn't).
-    if ((current.id == null) !== (workout.id == null)) {
-      workout.id = current.id;
-      calendar(ctx, date);
-    }
   }
 
   redraw();
   root.replaceChildren(
-    subTabs('workout'),
+    tabs.el,
     h('div', { class: 'panel-head' },
       h('h1', {}, dayTitle(date)),
       date !== today() && h('button', { type: 'button', class: 'btn btn-small', onClick: () => ctx.go('#/workout') }, 'Today')),
     h('div', { class: 'field' }, h('span', { class: 'field-label' }, 'How tired did you feel?'), tiredness),
     blocks,
-    h('button', { type: 'button', class: 'btn btn-primary add-exercise', onClick: addExercise }, icon('plus', { size: 15 }), 'Add exercise'),
+    h('button', { type: 'button', class: 'btn btn-primary add-exercise', onClick: () => ctx.go(exercisesFor(date)) },
+      icon('plus', { size: 15 }), 'Add exercise'),
     field('Notes (optional)', notes),
     h('div', { class: 'actions' }, deleteButton));
 }
 
-// ---- the exercise list ------------------------------------------------------------
+// ---- the exercise list: what to add to the day's workout -----------------------------
 
-export async function renderExercises(root, ctx) {
-  const exercises = await ctx.api.exercises();
+// Every exercise, A to Z, its variants as a bar of buttons, each adding it to
+// the day's workout and saying when you last did it; one already in it reads
+// "Added". On top, one tap for what you've done in the last two weeks. The
+// name opens its progress; pointing at it lights up its days on the calendar.
+export async function renderExercises(root, ctx, { date = null } = {}) {
+  date = date || today();
+  const pane = workoutPane(ctx, { selected: date });
+  let [workout, exercises] = await Promise.all([ctx.api.workout(date), ctx.api.exercises()]);
   if (ctx.stale()) return;
-  calendar(ctx, null);
-  const list = h('div', { class: 'exercise-list' });
-  const search = h('input', { type: 'search', class: 'input', placeholder: 'Search exercises', autocomplete: 'off', onInput: () => draw() });
+
+  const tabs = subTabs('exercises', date, workout.blocks.length);
+  const target = date === today() ? 'today’s workout' : `the workout on ${dayTitle(date)}`;
+  const recentRow = h('div', { class: 'xp-recent' });
+  const list = h('div', { class: 'xp-list' });
+  const search = h('input', {
+    type: 'search', class: 'input', placeholder: 'Search exercises', autocomplete: 'off', 'aria-label': 'Search exercises',
+    onInput: () => draw(),
+  });
+
+  async function add(e, v) {
+    try {
+      workout = await ctx.api.addWorkoutExercise(date, { exercise_id: e.id, variant_id: v ? v.id : null });
+      // It was done on this day now, too.
+      const later = (d) => (d && d > date ? d : date);
+      e.last_date = later(e.last_date);
+      if (v) v.last_date = later(v.last_date);
+      else e.plain_last_date = later(e.plain_last_date);
+      ctx.toast(`Added ${choiceName(e, v)} to ${target}.`, 'success');
+      pane.refresh();
+    } catch (err) {
+      ctx.toast(err.message, 'error');
+    }
+    if (ctx.stale()) return;
+    tabs.setCount(workout.blocks.length);
+    draw();
+  }
+
+  // A variant the list doesn't have yet: named, added to the exercise, and
+  // put in the workout straight away.
+  async function newVariant(e) {
+    const name = await promptDialog(`New variant of ${e.name}`, 'Name', 'e.g. Incline', { maxLength: NAME_MAX });
+    if (!name) return;
+    try {
+      Object.assign(e, await ctx.api.addVariant(e.id, name));
+    } catch (err) {
+      ctx.toast(err.message, 'error');
+      return;
+    }
+    await add(e, e.variants.reduce((a, b) => (b.id > a.id ? b : a)));   // the newest
+  }
+
+  async function createExercise() {
+    const created = await newExercise(ctx);
+    if (!created || ctx.stale()) return;
+    exercises = [...exercises, created].sort((a, b) => a.name.localeCompare(b.name));
+    search.value = '';
+    draw();
+    pane.refresh();   // its name
+  }
+
+  // Each tap disables its button until the list is drawn again, so a second
+  // tap can't add it twice.
+  const adder = (e, v) => (ev) => {
+    ev.currentTarget.disabled = true;
+    add(e, v);
+  };
+
+  // A variant's segment of the bar (or the one "Add" of an exercise without variants).
+  function segment(e, v, done) {
+    const added = done.has(choiceKey(e, v));
+    const last = lastDate(e, v);
+    return h('button', {
+      type: 'button', disabled: added, class: added ? 'xp-added' : null,
+      'aria-label': added ? `${choiceName(e, v)}, in ${target}` : `Add ${choiceName(e, v)} to ${target}`,
+      onClick: adder(e, v),
+    },
+    h('span', { class: 'xp-seg-label' }, icon(added ? 'check' : 'plus', { size: 15 }), added ? 'Added' : choiceLabel(e, v) || 'Add'),
+    added ? choiceLabel(e, v) && h('span', { class: 'xp-date' }, choiceLabel(e, v)) : last && h('span', { class: 'xp-date' }, shortDate(last)));
+  }
+
+  const exerciseBlock = (e, done) => h('div', {
+    class: 'xp-ex',
+    onPointerenter: (ev) => ev.pointerType === 'mouse' && pane.light(e.id),
+    onPointerleave: () => pane.light(),
+    onFocusin: () => pane.light(e.id),
+    onFocusout: () => pane.light(),
+  },
+  h('div', { class: 'xp-ex-head' },
+    h('a', { class: 'xp-name', href: exercisePage(e.id, date), title: 'Progress' }, e.name, icon('chevron-right', { size: 15 })),
+    h('span', { class: 'xp-last' }, e.last_date ? `Last ${shortDate(e.last_date)}` : 'Not done yet')),
+  h('div', { class: 'xp-seg', role: 'group', 'aria-label': e.name },
+    choices(e).map((v) => segment(e, v, done)),
+    h('button', {
+      type: 'button', class: 'xp-seg-new', title: `Add a variant to ${e.name}`, 'aria-label': `Add a variant to ${e.name}`,
+      onClick: () => newVariant(e),
+    }, icon('plus', { size: 14 }), h('span', { class: 'xp-seg-new-label' }, 'Variant'))));
 
   function draw() {
+    const done = new Set(workout.blocks.map((b) => `${b.exercise_id}:${b.variant_id ?? ''}`));
     const q = search.value.trim().toLowerCase();
+
+    const since = daysAgo(RECENT_DAYS);
+    const recent = exercises.flatMap((e) => choices(e).map((v) => ({ e, v, date: lastDate(e, v) })))
+      .filter((c) => c.date && c.date >= since && !done.has(choiceKey(c.e, c.v)))
+      .sort((a, b) => b.date.localeCompare(a.date))
+      .slice(0, RECENT_MAX);
+    recentRow.hidden = !!q || !recent.length;
+    recentRow.replaceChildren(
+      h('span', { class: 'xp-label' }, 'Recent'),
+      h('div', { class: 'xp-recent-row' }, recent.map(({ e, v }) => h('button', {
+        type: 'button', class: 'xp-recent-btn', 'aria-label': `Add ${choiceName(e, v)} to ${target}`, onClick: adder(e, v),
+      }, icon('plus', { size: 15 }), e.name, choiceLabel(e, v) && h('span', {}, choiceLabel(e, v))))));
+
     const shown = exercises.filter((e) => !q || e.name.toLowerCase().includes(q) || e.variants.some((v) => v.name.toLowerCase().includes(q)));
     if (!shown.length) {
       list.replaceChildren(h('div', { class: 'empty' }, exercises.length ? 'No exercises match.' : 'No exercises yet.'));
       return;
     }
-    list.replaceChildren(...Object.entries(KINDS).flatMap(([kind, { group }]) => {
-      const inKind = shown.filter((e) => e.kind === kind);
-      return inKind.length ? [
-        h('h3', { class: 'usage-head' }, group),
-        ...inKind.map((e) => h('button', { type: 'button', class: 'lookup-row', onClick: () => ctx.go(`#/exercise/${e.id}`) },
-          h('span', { class: 'exercise-row-text' },
-            h('span', { class: 'lookup-name' }, e.name),
-            e.variants.length > 0 && h('span', { class: 'muted small' }, e.variants.map((v) => v.name).join(' · '))),
-          h('span', { class: 'muted small lookup-meta' }, e.last_date ? fmtDate(e.last_date) : 'Not done yet'),
-          icon('chevron-right', { size: 16 }))),
-      ] : [];
-    }));
+    list.replaceChildren(h('div', { class: 'xp-grid' }, shown.map((e) => exerciseBlock(e, done))));
   }
 
   draw();
   root.replaceChildren(
-    subTabs('exercises'),
+    tabs.el,
     h('div', { class: 'panel-head' }, h('h1', {}, 'Exercises'),
-      h('button', {
-        type: 'button', class: 'btn btn-small',
-        onClick: async () => {
-          const created = await newExercise(ctx);
-          if (created) ctx.go(`#/exercise/${created.id}`);
-        },
-      }, icon('plus', { size: 14 }), 'New exercise')),
+      h('button', { type: 'button', class: 'btn btn-small', onClick: createExercise }, icon('plus', { size: 14 }), 'New exercise')),
+    h('p', { class: 'xp-target' }, 'Adding to ', h('a', { href: workoutDay(date) }, target)),
+    recentRow,
     search,
     list);
 }
@@ -432,12 +530,13 @@ export async function renderExercises(root, ctx) {
 
 const METRIC_TITLE = { weight: 'Heaviest set', reps: 'Most reps in a set', seconds: 'Longest hold' };
 
-export async function renderExercise(root, ctx, { exerciseId }) {
-  const { exercise, series, history } = await ctx.api.progress(exerciseId);
+export async function renderExercise(root, ctx, { exerciseId, date = null }) {
+  date = date || today();
+  const pane = workoutPane(ctx, { selected: date, pinned: exerciseId });
+  const [{ exercise, series, history }, workout] = await Promise.all([ctx.api.progress(exerciseId), ctx.api.workout(date)]);
   if (ctx.stale()) return;
-  calendar(ctx, history[0]?.workout_date || null);
   const used = exercise.times > 0;
-  const here = `#/exercise/${exercise.id}`;
+  const here = exercisePage(exercise.id, date);
   const run = async (action, message) => {
     try {
       await action();
@@ -468,7 +567,7 @@ export async function renderExercise(root, ctx, { exerciseId }) {
     try {
       await ctx.api.deleteExercise(exercise.id);
       ctx.toast('Exercise deleted.');
-      ctx.go('#/workout/exercises');
+      ctx.go(exercisesFor(date));
     } catch (err) {
       ctx.toast(err.message, 'error');
     }
@@ -509,8 +608,8 @@ export async function renderExercise(root, ctx, { exerciseId }) {
   });
 
   root.replaceChildren(
-    subTabs('exercises'),
-    h('button', { type: 'button', class: 'back-link', onClick: () => ctx.go('#/workout/exercises') }, icon('arrow-left', { size: 15 }), 'Exercises'),
+    subTabs('exercises', date, workout.blocks.length).el,
+    h('button', { type: 'button', class: 'back-link', onClick: () => ctx.go(exercisesFor(date)) }, icon('arrow-left', { size: 15 }), 'Exercises'),
     h('div', { class: 'route-kicker' }, KINDS[exercise.kind].label),
     h('h1', { class: 'route-heading' }, exercise.name),
     exercise.notes && h('p', { class: 'notes' }, exercise.notes),

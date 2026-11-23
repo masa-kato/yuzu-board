@@ -23,10 +23,14 @@ const PREFS_KEY = 'homewall.filters.v1';
 //   nav     the tab it's under (or a function of its params)
 //   admin   only for the admin, logged in (auth.py); anyone else goes to the Logbook
 //   computer  not on phones, which go to the Climbs list instead
-//   layout  'calendar': calendar.js takes the wall's place; 'solo': the panel alone,
-//           centered; otherwise the wall beside the panel
+//   layout  'calendar': calendar.js takes the wall's place; 'workout': a small
+//           calendar to the right of the panel, kept from one such page to the
+//           next (workout.js); 'solo': the panel alone, centered; otherwise the
+//           wall beside the panel
 //   list    its controls stay put while only its list scrolls
 //   pinned  and on phones the board stays pinned above that list
+//   still   from one of its links to another (a sub-tab, a day), the page stays
+//           up until the next is drawn, which doesn't ease in
 // A link to no page opens the Climbs list.
 const idOf = (raw) => Number(raw) || null;
 const PAGES = {
@@ -63,13 +67,17 @@ const PAGES = {
     nav: 'outdoors', admin: true, layout: 'solo',
   },
   'outdoor-climb': { render: outdoor.renderClimb, params: (raw) => ({ climbId: Number(raw) }), nav: 'outdoors', admin: true, layout: 'solo' },
-  // #/workout/exercises is the exercise list; otherwise ?date= is the day (today by default).
+  // #/workout/exercises is the exercise list, to add to a day's workout; ?date=
+  // is the day (today by default), there and on an exercise's page.
   workout: {
-    render: (root, ctx, p) => (p.exercises ? workout.renderExercises(root, ctx) : workout.render(root, ctx, p)),
-    params: (raw, q) => (raw === 'exercises' ? { exercises: true } : { date: q.get('date') }),
-    nav: 'workout', admin: true, layout: 'calendar',
+    render: (root, ctx, p) => (p.exercises ? workout.renderExercises(root, ctx, p) : workout.render(root, ctx, p)),
+    params: (raw, q) => ({ exercises: raw === 'exercises', date: q.get('date') }),
+    nav: 'workout', admin: true, layout: 'workout', still: true,
   },
-  exercise: { render: workout.renderExercise, params: (raw) => ({ exerciseId: Number(raw) }), nav: 'workout', admin: true, layout: 'calendar' },
+  exercise: {
+    render: workout.renderExercise, params: (raw, q) => ({ exerciseId: Number(raw), date: q.get('date') }),
+    nav: 'workout', admin: true, layout: 'workout',
+  },
 };
 PAGES['outdoor-climbs'] = PAGES.outdoors;   // an old link to the climbs list
 
@@ -112,6 +120,7 @@ const boardEl = document.getElementById('board');
 let board;
 let current = null;
 let currentView = null;
+let currentLayout = null;
 let renderToken = 0;
 
 function readMe() {
@@ -367,25 +376,38 @@ async function render() {
   // board keeps the old route until the new one is drawn over it; back on the
   // Climbs list, the climb just left stays on the board (climbs.js).
   board.reset({ keepRoute: currentView === 'route' && ['route', 'climbs', 'legacy'].includes(view) });
+  const still = !!page.still && currentView === view;
   currentView = view;
   const nav = typeof page.nav === 'function' ? page.nav(params) : page.nav;
   document.querySelectorAll('.tabs a').forEach((a) => a.classList.toggle('active', a.dataset.nav === nav));
 
   panel.classList.toggle('panel-list', !!page.list);
   document.body.classList.toggle('list-mode', !!page.pinned);
-  document.body.classList.toggle('calendar-mode', page.layout === 'calendar');
+  const calendarSide = page.layout === 'calendar' || page.layout === 'workout';
+  document.body.classList.toggle('calendar-mode', calendarSide);
+  document.body.classList.toggle('workout-mode', page.layout === 'workout');
   document.body.classList.toggle('solo-mode', page.layout === 'solo');
-  sidePane.hidden = page.layout !== 'calendar';
-  sidePane.replaceChildren();
+  sidePane.hidden = !calendarSide;
+  // The Workout tab's pages share one calendar (workout.js), kept between them.
+  if (page.layout !== 'workout' || currentLayout !== 'workout') sidePane.replaceChildren();
+  currentLayout = page.layout;
   // Start each page at the top, so on phones the board is in view.
   window.scrollTo(0, 0);
 
   const token = ++renderToken;
-  const root = h('div', { class: 'view' });
-  panel.replaceChildren(root);
+  const root = h('div', { class: still ? 'view still' : 'view' });
+  const show = () => {
+    if (root.isConnected) return;
+    panel.replaceChildren(root);
+    panel.scrollTop = 0;
+  };
+  // A still page stays up until the next is drawn, or the placeholder is due.
+  if (!still) show();
   // Views draw with replaceChildren, so this placeholder vanishes once they do.
   const placeholder = setTimeout(() => {
-    if (token === renderToken && !root.childElementCount) root.append(skeleton());
+    if (token !== renderToken || root.childElementCount) return;
+    show();
+    root.append(skeleton());
   }, 150);
   // A view whose data arrives after the user has navigated away must not touch the board.
   const viewCtx = Object.assign(Object.create(ctx), { stale: () => token !== renderToken });
@@ -400,8 +422,11 @@ async function render() {
     }
   } finally {
     clearTimeout(placeholder);
-    // A swipe whose next page didn't take it over must not leave the wall offset.
-    if (token === renderToken) settleSwipe(board.swipeLayer);
+    if (token === renderToken) {
+      show();
+      // A swipe whose next page didn't take it over must not leave the wall offset.
+      settleSwipe(board.swipeLayer);
+    }
   }
 }
 

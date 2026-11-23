@@ -28,7 +28,7 @@ class WorkoutTest(ApiTestCase):
 
     def test_only_the_admin(self):
         other = self.app.test_client()
-        for method, url in [("get", "/api/exercises"), ("get", "/api/workouts/2026-11-01"),
+        for method, url in [("get", "/api/exercises"), ("get", "/api/workouts"), ("get", "/api/workouts/2026-11-01"),
                             ("put", "/api/workouts/2026-11-01")]:
             self.call(method, url, {}, 401, other)
 
@@ -51,6 +51,22 @@ class WorkoutTest(ApiTestCase):
         self.assertEqual([(s["weight"], s["reps"]) for s in workout["blocks"][0]["sets"]], [(135, 8), (145, 6)])
         days = self.call("get", "/api/climbers/%d/days" % self.masa)["days"]
         self.assertTrue(days["2026-11-01"]["workout"])
+
+    def test_the_workout_calendar(self):
+        self.block("2026-11-01", "Bench press", "Barbell")
+        self.block("2026-11-01", "Bench press", "Dumbbell")   # the same exercise, once
+        self.block("2026-11-01", "Plank")
+        self.block("2026-11-03", "Plank")
+        self.call("put", "/api/workouts/2026-11-03", {"tiredness": 4})
+        self.call("put", "/api/workouts/2026-11-04", {"notes": "rest day stretch"})
+        listed = self.call("get", "/api/workouts")
+        bench, plank = self.exercises["Bench press"]["id"], self.exercises["Plank"]["id"]
+        self.assertEqual(listed["days"], {
+            "2026-11-01": {"tiredness": None, "exercises": sorted([bench, plank])},
+            "2026-11-03": {"tiredness": 4, "exercises": [plank]},
+            "2026-11-04": {"tiredness": None, "exercises": []},
+        })
+        self.assertEqual(listed["names"][str(plank)], "Plank")
 
     def test_a_set_keeps_only_its_kinds_fields(self):
         hang = self.block("2026-11-01", "Max hang", "Half crimp")
@@ -78,12 +94,21 @@ class WorkoutTest(ApiTestCase):
         self.assertEqual(ref["last"]["date"], "2026-11-01")
         self.assertEqual([(s["weight"], s["reps"]) for s in ref["last"]["sets"]], [(135, 8), (145, 6)])
         self.assertEqual((ref["max30"]["value"], ref["max30"]["date"]), (155, "2026-10-20"))
+        # The progress line: each earlier day's best, without today's.
+        self.assertEqual([(p["date"], p["value"]) for p in ref["points"]],
+                         [("2026-09-01", 200), ("2026-10-20", 155), ("2026-11-01", 145)])
         first = self.call("get", "/api/workouts/2026-09-01")["blocks"][0]["reference"]
-        self.assertEqual((first["last"], first["max30"]), (None, None))
+        self.assertEqual((first["last"], first["max30"], first["points"]), (None, None, []))
         # A day whose sets were left empty isn't "last time".
         self.block("2026-11-06", "Bench press", "Barbell")
         later = self.block("2026-11-07", "Bench press", "Barbell")
         self.assertEqual(later["reference"]["last"]["date"], "2026-11-05")
+
+    def test_the_progress_line_keeps_the_last_twelve_days(self):
+        for day in range(1, 16):
+            self.sets(self.block("2026-10-%02d" % day, "Plank"), {"seconds": day})
+        ref = self.block("2026-10-20", "Plank")["reference"]
+        self.assertEqual([p["value"] for p in ref["points"]], list(range(4, 16)))
 
     def test_bodyweight_progress_is_reps_until_weight_is_added(self):
         pullup = self.block("2026-11-01", "Pull-up", "Overhand")
