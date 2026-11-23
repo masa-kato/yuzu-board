@@ -1778,9 +1778,11 @@ input[type="range"]:disabled { opacity: 0.4; cursor: not-allowed; }
 
 /* grade picker: each option shows its pips over its name */
 .segmented { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; }
-.seg { position: relative; cursor: pointer; }
+.seg { position: relative; display: flex; cursor: pointer; }
 .seg input { position: absolute; opacity: 0; pointer-events: none; }
+/* Each box fills its cell, so a row of them shares one height. */
 .seg > span {
+  flex: 1;
   display: flex;
   justify-content: center;
   align-items: center;
@@ -1791,12 +1793,22 @@ input[type="range"]:disabled { opacity: 0.4; cursor: not-allowed; }
   transition: background 0.15s, box-shadow 0.15s;
 }
 .seg .grade { flex-direction: column; gap: 6px; }
+/* The yuzu row as tall as Warm-up's sprout, so the names line up across. */
+.seg .pips { height: 12px; }
 .seg > .seg-grade { flex-direction: column; gap: 4px; }
 .grade-v { color: var(--muted); font-size: 12px; font-weight: 600; white-space: nowrap; }
 .seg:hover > span { background: var(--surface-3); }
 .seg input:checked + span { background: var(--yuzu-soft); box-shadow: inset 0 0 0 1px var(--yuzu-line); }
 .seg input:checked + span .grade { color: var(--yuzu); }
 .seg input:focus-visible + span { box-shadow: 0 0 0 3px var(--focus-ring); }
+/* Phones: room for "Warm-up" in an equal fifth, so the five boxes match. */
+@media (max-width: 480px) {
+  .segmented { gap: 4px; }
+  .seg > .seg-grade { padding-inline: 2px; }
+}
+@media (max-width: 380px) {
+  .seg .grade-label, .seg .grade-v { font-size: 11px; }
+}
 
 .fa-fields {
   display: flex;
