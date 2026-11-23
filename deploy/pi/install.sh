@@ -26,7 +26,8 @@ if [[ $(loginctl show-user "$USER" -p Linger --value 2>/dev/null) != yes ]]; the
   echo "Letting the services start at boot without a login (asks for your password)..."
   sudo loginctl enable-linger "$USER"
 fi
-if (( $(sysctl -n net.ipv4.ip_unprivileged_port_start) > 80 )); then
+# Read from /proc: sysctl itself is in /usr/sbin, off a user's PATH.
+if (( $(cat /proc/sys/net/ipv4/ip_unprivileged_port_start) > 80 )); then
   echo "Letting the app use port 80 without root (asks for your password)..."
   echo 'net.ipv4.ip_unprivileged_port_start=80' | sudo tee /etc/sysctl.d/60-yuzu-port80.conf >/dev/null
   sudo sysctl --quiet -p /etc/sysctl.d/60-yuzu-port80.conf

@@ -46,5 +46,5 @@ for _ in $(seq 30); do
   fi
   sleep 1
 done
-echo "The Pi didn't answer: ssh $PI journalctl --user -u yuzu-board" >&2
+echo "The Pi didn't answer: ssh $PI journalctl --user-unit yuzu-board" >&2
 exit 1

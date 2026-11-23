@@ -91,7 +91,7 @@ main() {
   echo "$new didn't come up, so going back to $old" >&2
   git -C "$LIVE" reset --quiet --hard "$old"
   systemctl --user restart yuzu-board
-  answers_as "$old" || echo "...and $old didn't answer either: see journalctl --user -u yuzu-board" >&2
+  answers_as "$old" || echo "...and $old didn't answer either: see journalctl --user-unit yuzu-board" >&2
   failed "$new" "it didn't start, so $old is back"
   return 1
 }

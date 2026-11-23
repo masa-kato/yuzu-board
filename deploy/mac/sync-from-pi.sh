@@ -43,9 +43,7 @@ rsync -a --timeout=60 "$PI:deploy/status.json" "$REPLICA/status.json" 2>/dev/nul
 
 $BACKUP prune "$REPLICA/backups" >/dev/null
 newest=$($BACKUP latest "$REPLICA/backups")
-if [[ -z $newest ]]; then
-  say "Synced, but there are no snapshots yet."
-elif ! problem=$($BACKUP verify "$newest" 2>&1); then
+if [[ -n $newest ]] && ! problem=$($BACKUP verify "$newest" 2>&1); then
   notify "The newest copy of the data from the Pi isn't sound: $(basename "$newest")."
   say "Unsound: $problem"
 fi

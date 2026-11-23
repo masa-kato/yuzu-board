@@ -53,7 +53,7 @@ Snapshots are kept by age, on the Pi and the Mac alike: every one from the last 
 3. Moves `~/yuzu-board` to the commit and restarts the app.
 4. Waits up to 30 seconds for `/api/health` to answer with the new commit. If it doesn't, it goes back to the last commit and restarts again.
 
-The Mac shows a notification when a deploy fails (from the next sync). Its log on the Pi: `journalctl --user -u yuzu-update`.
+The Mac shows a notification when a deploy fails (from the next sync). Its log on the Pi: `journalctl --user-unit yuzu-update`.
 
 ## Setting it up
 
@@ -80,9 +80,11 @@ This makes `~/YuzuBoard`, a key the Pi lets read `~/yuzu-data` and nothing else 
 
 ```sh
 systemctl --user status yuzu-board yuzu-update.timer yuzu-backup.timer
-journalctl --user -u yuzu-board -n 50       # the app
-journalctl --user -u yuzu-update -n 50      # deploys
+journalctl --user-unit yuzu-board -n 50       # the app
+journalctl --user-unit yuzu-update -n 50      # deploys
 ```
+
+Raspberry Pi OS keeps these logs in memory to spare the SD card, so they start again at each boot; the last deploy's result stays in `~/yuzu-data/deploy/status.json`.
 
 **Undo a change** that's already live: `git revert` it on the Mac and push. The Pi always follows `main`, so resetting its checkout by hand only lasts until the next check.
 

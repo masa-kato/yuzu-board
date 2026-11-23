@@ -1,5 +1,5 @@
 # Deploys GitHub's main when it has moved (deploy/pi/update.sh), on
-# yuzu-update.timer. Its log: journalctl --user -u yuzu-update
+# yuzu-update.timer. Its log: journalctl --user-unit yuzu-update
 
 [Unit]
 Description=Deploy the newest Yuzu Board from GitHub
