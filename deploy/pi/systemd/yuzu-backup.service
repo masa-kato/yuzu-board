@@ -1,0 +1,10 @@
+# A snapshot of the database into ~/yuzu-data/backups, then old ones pruned
+# (backup.py), on yuzu-backup.timer. The Mac copies them (deploy/mac/sync-from-pi.sh).
+
+[Unit]
+Description=Snapshot the Yuzu Board's database
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 %h/yuzu-board/backup.py snapshot %h/yuzu-data/homewall.db %h/yuzu-data/backups
+ExecStart=/usr/bin/python3 %h/yuzu-board/backup.py prune %h/yuzu-data/backups

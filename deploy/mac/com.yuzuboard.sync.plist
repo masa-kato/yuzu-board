@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Copies the Pi's data to this Mac every 15 minutes, at login, and after
+     sleep (sync-from-pi.sh). deploy/mac/install.sh fills in the paths. -->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.yuzuboard.sync</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>@BIN@/sync-from-pi.sh</string>
+  </array>
+  <key>StartInterval</key>
+  <integer>900</integer>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>StandardOutPath</key>
+  <string>@LOGS@/sync.log</string>
+  <key>StandardErrorPath</key>
+  <string>@LOGS@/sync.log</string>
+</dict>
+</plist>

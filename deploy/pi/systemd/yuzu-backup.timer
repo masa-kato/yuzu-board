@@ -1,0 +1,11 @@
+# Every quarter hour, catching up after the Pi was off.
+
+[Unit]
+Description=Snapshot the Yuzu Board's database every 15 minutes
+
+[Timer]
+OnCalendar=*:0/15
+Persistent=true
+
+[Install]
+WantedBy=timers.target

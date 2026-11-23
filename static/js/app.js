@@ -405,7 +405,17 @@ async function render() {
   }
 }
 
+// A copy that isn't the live app (the test app, deploy/mac/test-app.sh) says
+// so on every page, so nothing is logged there by mistake.
+function markCopy({ label }) {
+  if (!label) return;
+  document.title = `${label} · ${document.title}`;
+  document.body.classList.add('labeled-copy');
+  document.body.append(h('div', { class: 'copy-label', role: 'note' }, `${label} · not the live logbook`));
+}
+
 async function init() {
+  api.health().then(markCopy, () => {});
   // The hold images are sized for this screen and the board, so the holds wait for the board.
   const loadSpec = api.board();
   const [spec, holds, climbers, volumes, colors, session] = await Promise.all([

@@ -38,6 +38,7 @@
 
   /* brand: sampled from the yuzu logo; yuzu is the only accent */
   --yuzu: #edbb1c;
+  --copy-label: #ff8a3d;               /* the test app's outline and tag (app.js markCopy) */
   --yuzu-bright: #f6cd45;
   --yuzu-ink: #1d1604;
   --yuzu-soft: rgba(237, 187, 28, 0.14);
@@ -2713,4 +2714,30 @@ body.calendar-mode .board-pane { display: none; }
   .sprout-plant, .sprout-stem, .sprout-leaf { animation: none; }
   .pip.on, .pip.on::before { animation: none !important; }
   .celebrate { display: none; }
+}
+
+/* a copy that isn't the live app (app.js markCopy): an outline round the
+   screen and a tag, neither of which takes a tap */
+body.labeled-copy::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  border: 3px solid var(--copy-label);
+  pointer-events: none;
+}
+.copy-label {
+  position: fixed;
+  left: 50%;
+  bottom: calc(10px + env(safe-area-inset-bottom));
+  z-index: 1000;
+  transform: translateX(-50%);
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: var(--copy-label);
+  color: #1a0f05;
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+  pointer-events: none;
 }

@@ -1,0 +1,10 @@
+#!/bin/sh
+# Runs the tests before a push, so main (which the Pi deploys by itself,
+# docs/deploy.md) never gets a commit that fails them. The Pi runs them again
+# on the commit itself. `git push --no-verify` skips this once.
+cd "$(git rev-parse --show-toplevel)" || exit 1
+echo "Running the tests before pushing..."
+if ! .venv/bin/python -m unittest discover -s tests -q; then
+  echo "The tests failed, so nothing was pushed." >&2
+  exit 1
+fi

@@ -2,8 +2,10 @@
 blueprints registered below (docs/development.md has the map)."""
 
 import argparse
+import functools
 import getpass
 import os
+import subprocess
 
 from flask import Flask, jsonify, send_from_directory
 
@@ -25,7 +27,20 @@ BLUEPRINTS = (hold_images.bp, holds.bp, climbs.bp, logbook.bp, circuits.bp, outd
 LOOPBACK = {"127.0.0.1", "localhost", "::1"}
 
 
-def create_app(db_path=None, upload_dir=None):
+@functools.lru_cache(maxsize=None)
+def git_version():
+    """The commit this checkout is on, short ("unknown" outside git). Read
+    once, at startup, so it names the code that's running."""
+    try:
+        out = subprocess.run(["git", "rev-parse", "--short", "HEAD"], cwd=HERE, capture_output=True, text=True, timeout=5)
+    except (OSError, subprocess.SubprocessError):
+        return "unknown"
+    return out.stdout.strip() if out.returncode == 0 and out.stdout.strip() else "unknown"
+
+
+def create_app(db_path=None, upload_dir=None, label=None):
+    """`label` marks a copy that isn't the live app (the test app's "Test
+    copy"): the page shows it on every view."""
     app = Flask(__name__, static_folder=os.path.join(HERE, "static"), static_url_path="")
     app.config["DATABASE"] = db_path or db.DEFAULT_DB_PATH
     app.config["UPLOAD_DIR"] = upload_dir or hold_images.DEFAULT_UPLOAD_DIR
@@ -47,6 +62,15 @@ def create_app(db_path=None, upload_dir=None):
     @app.get("/")
     def index():
         return send_from_directory(app.static_folder, "index.html")
+
+    version = git_version()
+
+    @app.get("/api/health")
+    def health():
+        """That the app and its database answer, and which commit it runs:
+        the Pi's deploy waits for the new one (deploy/pi/update.sh)."""
+        db.get_db().execute("SELECT 1").fetchone()
+        return jsonify({"ok": True, "version": version, "label": label})
 
     return app
 
@@ -81,11 +105,14 @@ def main():
     parser.add_argument("--uploads", help="folder for hold images (default: uploads/holds)")
     parser.add_argument("--debug", action="store_true",
                         help="reload on code changes and show tracebacks; only this computer can connect")
+    parser.add_argument("--reload", action="store_true",
+                        help="reload on code changes, without --debug's debugger, so phones can still connect")
+    parser.add_argument("--label", help='mark every page as not the live app, e.g. "Test copy"')
     parser.add_argument("--set-admin", metavar="NAME",
                         help="make this climber the admin, asking for their password, then exit")
     args = parser.parse_args()
 
-    app = create_app(args.db, args.uploads)
+    app = create_app(args.db, args.uploads, args.label)
     # Demo data goes only into a database nobody has used yet, never into one
     # whose wall has just been cleared.
     conn = db.connect(args.db)
@@ -102,7 +129,7 @@ def main():
     host = listen_host(args.host, args.debug)
     if args.debug and host not in LOOPBACK:
         print("Warning: --debug on %s lets anyone who can reach it run code on this computer." % host)
-    app.run(host=host, port=args.port, debug=args.debug)
+    app.run(host=host, port=args.port, debug=args.debug, use_reloader=args.debug or args.reload)
 
 
 if __name__ == "__main__":

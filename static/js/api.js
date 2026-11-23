@@ -53,6 +53,8 @@ export const api = {
 
   // The admin login (auth.py): choosing the admin climber asks for the password.
   session: () => request('GET', '/api/session'),
+  // {ok, version, label}: `label` names a copy that isn't the live app (app.py).
+  health: () => request('GET', '/api/health'),
   login: (password) => request('POST', '/api/login', { password }),
   logout: () => request('POST', '/api/logout'),
 

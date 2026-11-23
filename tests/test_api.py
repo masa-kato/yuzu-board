@@ -1,6 +1,12 @@
+import importlib
+import os
+import sys
 import unittest
+from unittest import mock
 
 from support import ApiTestCase
+
+from app import create_app
 
 import db
 import geometry
@@ -303,6 +309,37 @@ class ApiTest(ApiTestCase):
         again = self.post("/api/climbers", {"name": "alex"})
         self.assertEqual(again["id"], self.alex)
 
+
+
+class HealthTest(ApiTestCase):
+    def test_health_says_the_version(self):
+        health = self.call("get", "/api/health")
+        self.assertEqual((health["ok"], health["label"]), (True, None))
+        self.assertTrue(health["version"])
+
+    def test_a_labeled_copy(self):
+        client = create_app(self.db_path, self.upload_dir, label="Test copy").test_client()
+        self.assertEqual(self.call("get", "/api/health", client=client)["label"], "Test copy")
+
+
+class WsgiTest(ApiTestCase):
+    """The production entry point (wsgi.py) needs the database to exist."""
+
+    def load(self, **env):
+        sys.modules.pop("wsgi", None)
+        with mock.patch.dict(os.environ, env):
+            return importlib.import_module("wsgi")
+
+    def test_needs_an_existing_database(self):
+        with self.assertRaises(SystemExit):
+            self.load(YUZU_DB=self.scratch("nowhere.db"))
+        self.assertFalse(os.path.exists(self.scratch("nowhere.db")))
+
+    def test_serves_the_database_named(self):
+        wsgi = self.load(YUZU_DB=self.db_path, YUZU_UPLOADS=self.upload_dir)
+        self.assertEqual(wsgi.app.config["DATABASE"], self.db_path)
+        self.assertEqual(wsgi.app.config["UPLOAD_DIR"], self.upload_dir)
+        sys.modules.pop("wsgi", None)
 
 if __name__ == "__main__":
     unittest.main()

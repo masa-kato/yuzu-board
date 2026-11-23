@@ -6,13 +6,15 @@ How the code fits together, and what to touch to change it. The [README](../READ
 
 - **Server:** a Flask app (`app.py`) serves the page and a JSON API, split into blueprints, one per area. Everything is stored in one SQLite file (`homewall.db`) plus the hold images in `uploads/holds/`.
 - **Browser:** one page (`static/index.html`) and plain ES modules. There's no build step: edit a `.js` or `.css` file and reload.
-- **Restart the server after changing Python or `schema.sql`.** Static files are read from disk on every request, but routes and SQL are loaded once at startup. A page that answers "Request failed (404)" after a change is usually running against an old server. With `--debug` the server restarts itself when a `.py` file changes (and listens only on this computer).
+- **Try changes in the test app:** `deploy/mac/test-app.sh` serves this working copy on port 5051 against a copy of the live data, and restarts itself when a `.py` file changes (`--reload`). Static files are read from disk on every request, so a `.js` or `.css` change shows on reload. A server started without `--reload` or `--debug` has to be restarted after a change to Python or `schema.sql`: a page that answers "Request failed (404)" after a change is usually running against an old server.
+- **Pushing to `main` deploys it.** The Pi tests each new commit and switches to it within about 2 minutes ([deploy.md](deploy.md)), and the pre-push hook runs the tests on this side first.
 
 ## Server modules
 
 | Module | What it holds | API |
 |---|---|---|
-| `app.py` | `create_app()`, which registers the blueprints, and the command line (`main`, `--set-admin`) | `/` |
+| `app.py` | `create_app()`, which registers the blueprints, and the command line (`main`, `--set-admin`) | `/`, `/api/health` |
+| `wsgi.py`, `backup.py` | The app for the Pi's production server; database snapshots, pruned by age and checked ([deploy.md](deploy.md)) | |
 | `climbs.py` | Climbs and variations, drafts, and the climb list's filtering and sorting. Also what "possible" and "Legacy" mean (`POSSIBLE_SQL`) | `/api/routes`, `/api/drafts` |
 | `holds.py` | Holds, the shared color list, volumes, the board's geometry and hold names | `/api/holds`, `/api/colors`, `/api/volumes`, `/api/board`, `/api/hold-names` |
 | `hold_images.py` | Uploaded PNGs, the smaller copies the board draws, and the touch screens' one picture of every hold | `/uploads/holds/…`, `/api/holds/picture` |
@@ -144,6 +146,8 @@ On touch screens (`TOUCH` in `ui.js`; `LIGHT` in `board.js`) the holds are drawn
 .venv/bin/python -m unittest tests.test_holds                   # one file
 .venv/bin/python -m unittest tests.test_holds.HoldApiTest.test_upload_off_grid_hold
 ```
+
+The pre-push hook (`.githooks/pre-push`, turned on by `deploy/mac/install.sh`) runs them all before every push, and the Pi runs them again on each commit before deploying it.
 
 `tests/support.py` has what the tests share. `ApiTestCase` gives each test its own app on a fresh database and upload folder, deleted afterwards, with `self.client`, `self.call(method, url, data, status)` (checks the status, returns the JSON), `self.add_holds([(name, col, row)])` and `self.make_admin()`. `ScratchTestCase` is just the temporary folder, for migration tests that build an old database themselves. Import `support` first in a test file, as it puts the app on the import path.
 

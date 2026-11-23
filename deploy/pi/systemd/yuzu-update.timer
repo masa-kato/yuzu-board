@@ -1,0 +1,11 @@
+# A minute after boot, then every 2 minutes: check GitHub for a new version.
+
+[Unit]
+Description=Check GitHub for a new Yuzu Board
+
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec=2min
+
+[Install]
+WantedBy=timers.target

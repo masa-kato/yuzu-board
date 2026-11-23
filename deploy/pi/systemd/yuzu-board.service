@@ -1,0 +1,19 @@
+# The Yuzu Board, live on the Pi at http://yuzuberrypi.local (docs/deploy.md).
+# A user service: with linger on (deploy/pi/install.sh) it starts at boot
+# without anyone logging in, and restarts if it stops.
+
+[Unit]
+Description=The Yuzu Board
+
+[Service]
+WorkingDirectory=%h/yuzu-board
+Environment=YUZU_DB=%h/yuzu-data/homewall.db
+Environment=YUZU_UPLOADS=%h/yuzu-data/uploads/holds
+# Never start on a missing database: wsgi.py would refuse anyway.
+ExecStartPre=/usr/bin/test -s %h/yuzu-data/homewall.db
+ExecStart=%h/yuzu-board/.venv/bin/waitress-serve --listen=*:80 --threads=8 wsgi:app
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=default.target

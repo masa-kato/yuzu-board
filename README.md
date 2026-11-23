@@ -8,6 +8,8 @@ A route tracker for a home bouldering board. It draws the wall to scale and lets
 
 ## Run it
 
+The live app runs on a Raspberry Pi at <http://yuzuberrypi.local>, which keeps the one database, takes each new version from GitHub by itself, and is copied to the Mac every 15 minutes. [docs/deploy.md](docs/deploy.md) covers it: setting it up, the test app for trying changes, and what to do when the Pi is down. What follows is running it on any computer, as the Pi and the test app do.
+
 It needs Python 3.9 or newer (the one that comes with macOS will do).
 
 ```sh
@@ -33,11 +35,13 @@ Then open <http://localhost:5050>. The server listens on all interfaces, so phon
 | `--db homewall.db` | The database file |
 | `--uploads uploads/holds` | The folder for hold images |
 | `--debug` | Restarts the server when a `.py` file changes and shows errors in full. Only this Mac can connect, since the debugger it adds runs any code it's sent; `--host` overrides that, with a warning |
+| `--reload` | Restarts the server when a `.py` file changes, without the debugger, so phones can still connect (the test app uses it) |
+| `--label TEXT` | Marks every page as not the live app, e.g. `--label "Test copy"` |
 | `--set-admin NAME` | Makes NAME the admin and asks for their password, then exits (see below) |
 
 ### Keeping it running
 
-To keep the server going after the terminal closes:
+On the Pi, systemd keeps it running, starts it at boot and restarts it after each deploy ([docs/deploy.md](docs/deploy.md)). On another computer, to keep the server going after the terminal closes:
 
 ```sh
 nohup .venv/bin/python app.py > yuzu.log 2>&1 &
@@ -47,7 +51,7 @@ After updating the code, restart it: find it with `lsof -i :5050`, `kill` that P
 
 ### Your data
 
-Everything is in two places, both kept out of git: the database `homewall.db` and the hold images in `uploads/holds/`. Back up both. (`uploads/holds/board/` only holds smaller copies of the images, which are made again when missing.) To copy the database while the server is running, use SQLite's backup, which never catches it half-written:
+Everything is in two places, both kept out of git: the database `homewall.db` and the hold images in `uploads/holds/`. On the Pi they're in `~/yuzu-data/`, which snapshots the database every 15 minutes and is copied to the Mac's `~/YuzuBoard/replica/` ([docs/deploy.md](docs/deploy.md)). Elsewhere, back up both. (`uploads/holds/board/` only holds smaller copies of the images, which are made again when missing.) To copy the database while the server is running, use SQLite's backup, which never catches it half-written:
 
 ```sh
 sqlite3 homewall.db ".backup homewall-backup.db"
