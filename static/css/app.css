@@ -2277,6 +2277,8 @@ input[type="range"]:disabled { opacity: 0.4; cursor: not-allowed; }
 .outdoor-entry-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
 .outdoor-entry .chip:not(.on) { background: var(--surface-3); }
 .grade-input { width: 96px; }
+.prior-field { display: inline-flex; align-items: center; gap: 8px; }
+.prior-input { width: 72px; font-variant-numeric: tabular-nums; }
 .earlier-notes > summary { color: var(--outdoor); font-size: 13px; font-weight: 600; cursor: pointer; }
 .earlier-notes > summary:hover { color: var(--text); }
 .earlier-body { padding: 6px 0 0; }

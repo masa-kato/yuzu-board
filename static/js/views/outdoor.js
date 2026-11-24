@@ -250,6 +250,24 @@ export async function renderSession(root, ctx, { sessionId = null, date = null }
       type: 'text', class: 'input grade-input', maxlength: 20, placeholder: 'Grade', value: entry.grade || '', 'aria-label': `Grade of ${entry.name}`,
       onInput: (e) => (entry.grade = e.target.value),
     });
+    // A new climb's sessions before logging here: with 4, this is its 5th.
+    let prior = null;
+    if (!known) {
+      const which = h('span', { class: 'muted small' });
+      const show = () => (which.textContent = entry.prior_sessions > 0 ? `so this is session ${Number(entry.prior_sessions) + 1}` : '');
+      prior = h('label', { class: 'prior-field' },
+        h('span', { class: 'muted small' }, 'Sessions before'),
+        h('input', {
+          type: 'number', class: 'input prior-input', min: 0, max: 999, step: 1, inputmode: 'numeric', placeholder: '0',
+          value: entry.prior_sessions || '', 'aria-label': `Sessions on ${entry.name} before logging here`,
+          onInput: (e) => {
+            entry.prior_sessions = e.target.value;
+            show();
+          },
+        }),
+        which);
+      show();
+    }
     return h('div', { class: 'card outdoor-entry' },
       h('div', { class: 'outdoor-entry-head' },
         h('div', { class: 'outdoor-entry-name' },
@@ -263,7 +281,7 @@ export async function renderSession(root, ctx, { sessionId = null, date = null }
             renderEntries();
           },
         }, icon('x', { size: 16 }))),
-      h('div', { class: 'outdoor-entry-row' }, h('div', { class: 'chip-row wrap' }, choice(false, 'Tried'), choice(true, 'Sent')), grade),
+      h('div', { class: 'outdoor-entry-row' }, h('div', { class: 'chip-row wrap' }, choice(false, 'Tried'), choice(true, 'Sent')), grade, prior),
       note,
       earlier);
   }
@@ -274,21 +292,23 @@ export async function renderSession(root, ctx, { sessionId = null, date = null }
       : [h('p', { class: 'muted small' }, 'No climbs yet. Add the ones you tried below.')]));
   }
 
-  // Adding a climb: the area's climbs drop down as soon as the field is
-  // tapped (the ones not sent yet first, the latest tried first); typing
-  // narrows them, finds the name in other areas too, and offers a new climb.
+  // Adding a climb: the area's climbs not sent yet drop down as soon as the
+  // field is tapped (the latest tried first); typing narrows them, finds the
+  // name in other areas too, and offers a new climb. A sent climb shows only
+  // once its whole name is typed, to log it again.
   const search = h('input', {
     type: 'text', class: 'input', placeholder: 'Climb name', maxlength: NAME_MAX, enterkeyhint: 'enter', 'aria-label': 'Add a climb',
     // Enter adds a climb, never sends the form.
     onKeydown: (e) => e.key === 'Enter' && e.preventDefault(),
   });
-  const climbOrder = (a, b) => a.sent - b.sent || (b.last_date || '').localeCompare(a.last_date || '')
+  const climbOrder = (a, b) => (b.last_date || '').localeCompare(a.last_date || '')
     || a.name.localeCompare(b.name, undefined, { numeric: true });
   function climbRows(text) {
     const q = text.toLowerCase();
     const area = areaInput.value.trim();
     const taken = new Set(entries.map((e) => e.climb_id).filter((id) => id != null));
-    const matching = climbs.filter((c) => !taken.has(c.id) && c.name.toLowerCase().includes(q));
+    const named = climbs.filter((c) => !taken.has(c.id) && c.name.toLowerCase().includes(q));
+    const matching = named.filter((c) => !c.sent || c.name.toLowerCase() === q);
     const row = (c, where) => ({
       label: c.name, climb: c, mark: c.sent && sentMark(14), note: [c.grade, where && c.area].filter(Boolean).join(' · '),
     });
@@ -296,10 +316,14 @@ export async function renderSession(root, ctx, { sessionId = null, date = null }
     // Other areas' climbs only once a name is typed: a boulder in two places is two climbs.
     const elsewhere = area && q ? matching.filter((c) => !sameArea(c)).sort(climbOrder) : [];
     const exact = here.some((c) => c.name.toLowerCase() === q) || entries.some((e) => e.climb_id == null && e.name.toLowerCase() === q);
+    const sentHere = named.some((c) => c.sent && sameArea(c));
+    const none = q
+      ? (sentHere ? `Only sent climbs in ${area} match. Type the whole name to log one again.` : `No climb like that in ${area} yet.`)
+      : climbs.some(sameArea) ? `Nothing else in ${area} to add. Type a name for a new climb.` : `No climbs logged in ${area} yet. Type a name to add one.`;
     return [
       area && { head: area },
       ...here.map((c) => row(c, !area)),
-      area && !here.length && { info: q ? `No climb like that in ${area} yet.` : `No climbs logged in ${area} yet. Type a name to add one.` },
+      area && !here.length && { info: none },
       !area && !here.length && !q && { info: 'Type a climb’s name to add it.' },
       q && !exact && { label: `New climb “${text}”`, note: area && `in ${area}`, icon: 'plus', kind: 'new', name: text },
       elsewhere.length > 0 && { head: 'Other areas' },
@@ -311,7 +335,10 @@ export async function renderSession(root, ctx, { sessionId = null, date = null }
     keepOpen: true,
     suggest: climbRows,
     pick: (row) => {
-      entries.push(row.climb ? { climb_id: row.climb.id, name: row.climb.name, sent: false, note: '' } : { climb_id: null, name: row.name, grade: '', sent: false, note: '' });
+      // A known climb brings its area when none is set yet; the list then shows that area's.
+      if (row.climb && !areaInput.value.trim()) areaInput.value = row.climb.area;
+      entries.push(row.climb ? { climb_id: row.climb.id, name: row.climb.name, sent: false, note: '' }
+        : { climb_id: null, name: row.name, grade: '', prior_sessions: '', sent: false, note: '' });
       search.value = '';
       renderEntries();
     },
@@ -324,7 +351,7 @@ export async function renderSession(root, ctx, { sessionId = null, date = null }
       session_date: dateInput.value, area, notes: notesInput.value,
       entries: entries.map((x) => (x.climb_id != null
         ? { climb_id: x.climb_id, sent: x.sent, note: x.note }
-        : { climb: { name: x.name, area, grade: x.grade || '' }, sent: x.sent, note: x.note })),
+        : { climb: { name: x.name, area, grade: x.grade || '', prior_sessions: x.prior_sessions || 0 }, sent: x.sent, note: x.note })),
     };
     try {
       if (session) await ctx.api.updateOutdoorSession(session.id, data);

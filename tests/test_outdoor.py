@@ -69,6 +69,18 @@ class OutdoorTest(ApiTestCase):
         self.call("delete", "/api/outdoor/sessions/%d" % earlier["id"])
         self.assertEqual(self.call("get", "/api/outdoor/sessions/%d" % later["id"])["entries"][0]["session_number"], 6)
 
+    def test_a_new_climb_brings_its_sessions_before(self):
+        s = self.session("2026-11-17", [{"climb": {"name": "Hagakure", "area": "Index", "prior_sessions": 4}}], area="Index")
+        self.assertEqual(s["entries"][0]["session_number"], 5)
+        hagakure = s["entries"][0]["climb_id"]
+        self.assertEqual(self.call("get", "/api/outdoor/climbs/%d" % hagakure)["total_sessions"], 5)
+        # A known climb of that name keeps its own.
+        again = self.session("2026-11-24", [{"climb": {"name": "hagakure", "area": "Index", "prior_sessions": 9}}], area="Index")
+        self.assertEqual((again["entries"][0]["climb_id"], again["entries"][0]["session_number"]), (hagakure, 6))
+        # Out of range saves nothing.
+        self.session("2026-11-24", [{"climb": {"name": "Saigon", "area": "Index", "prior_sessions": 1000}}], area="Index", status=400)
+        self.assertEqual(len(self.call("get", "/api/outdoor/climbs")), 1)
+
     def test_day_notes_and_the_session_it_was_sent_on(self):
         first = self.session("2026-11-10", [{"climb": {"name": "Hagakure", "area": "Index"}, "note": "crimp"}],
                              area="Index", notes="Humid, greasy holds.")

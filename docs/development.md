@@ -218,7 +218,7 @@ Logging sends and tries *as the admin* needs the admin logged in.
 
 | | |
 |---|---|
-| `GET, POST /api/outdoor/sessions`; `GET, PUT, DELETE /api/outdoor/sessions/<id>` | A day out: `session_date`, `area`, `notes`, `entries` (`{climb_id}` or `{climb: {name, area, grade}}`, with `sent` and `note`) |
+| `GET, POST /api/outdoor/sessions`; `GET, PUT, DELETE /api/outdoor/sessions/<id>` | A day out: `session_date`, `area`, `notes`, `entries` (`{climb_id}` or `{climb: {name, area, grade, prior_sessions}}`, with `sent` and `note`) |
 | `GET, POST /api/outdoor/climbs`; `GET, PUT, DELETE /api/outdoor/climbs/<id>` | Outdoor climbs; one climb's page includes its `history` |
 
 **Workouts** (`workouts.py`, admin)
