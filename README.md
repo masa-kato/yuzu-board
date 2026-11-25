@@ -302,7 +302,7 @@ Tap a hold to see which climbs use it. From there you can edit its placement or 
 
 Wooden volumes are part of the wall's background.
 
-- **＋ Add a volume**, then click the corners in order. They can go anywhere on one panel (the main board or the footboard; not a side panel or the ceiling), not just on t‑nuts; ② snapping to t‑nuts is optional.
+- **＋ Add a volume**, then click the corners in order. They can go anywhere on one panel (the main board, the footboard or a side panel; not the ceiling), not just on t‑nuts; ② snapping to t‑nuts is optional (the side panels have none).
 - ① **Drag any corner** to move it, including ones placed earlier; pressing anywhere else adds the next corner. Backspace undoes the last corner, Enter saves, Esc cancels.
 - Choose **Black** or **Dark green** (a truer, darker green than the wall). Every volume has an off-white border, hidden wherever a hold sits on top, and a soft shadow.
 - ③ **Faces:** a volume's sides can be drawn inside it as fine lines, so its 3D shape reads on the flat board. In the volume editor, **Add a face**, then click its corners. Clicks snap to a nearby corner first (the volume's or another face's), then to a nearby edge. Click its first corner again, press Enter or **Done** to finish. Backspace removes its last corner, Esc cancels it, and × in the list deletes a face. Moving a corner moves every face corner attached to it. Face lines are much thinner than the border and never thicken it where they run along it, and holds on top hide them.

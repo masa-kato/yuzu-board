@@ -81,6 +81,14 @@ export function wallGeometry(spec) {
     return { x: tx, y: ty, column, letter, label: column + p.row_labels[row], dist: Math.hypot(x - tx, y - ty) };
   }
 
+  // The panel a point is on, or null off the wall or in a gap (geometry.panel_of).
+  function panelOf(x, y) {
+    return Object.keys(panelBoxes).find((panel) => {
+      const [left, top, right, bottom] = panelBoxes[panel];
+      return x >= left && x <= right && y >= top && y <= bottom;
+    }) ?? null;
+  }
+
   // Keeps a point on the wall: one off it, or in a gap, moves to the closest
   // spot on the nearest of `panels`.
   function clampToPanels(x, y, panels = Object.keys(panelBoxes)) {
@@ -94,5 +102,5 @@ export function wallGeometry(spec) {
     return best.p;
   }
 
-  return { nearest, clampToPanels };
+  return { nearest, panelOf, clampToPanels };
 }

@@ -22,7 +22,7 @@ COLOR_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
 COLOR_NAME_MAX = 24
 MAX_RECOLOR = 500   # holds in one bulk recolor
 VOLUME_COLORS = ("black", "green")
-VOLUME_PANELS = {"main", "foot"}   # not the side panels or the ceiling
+VOLUME_PANELS = {"main", "foot", "left", "right"}   # not the ceiling
 MAX_FACES = 50   # sub-polygons per volume
 
 HOLD_SELECT = """SELECT id, name, x, y, tnut_col, tnut_row, image, size, rotation,
@@ -407,9 +407,9 @@ def volume_points(raw):
     points = parse_corners(raw)
     panels = {geometry.panel_of(x, y) for x, y in points}
     if not panels <= VOLUME_PANELS:
-        bad_request("Every corner must be on the main board or the footboard")
+        bad_request("Every corner must be on the main board, the footboard or a side panel")
     if len(panels) > 1:
-        bad_request("A volume can't span the gap between the main board and the footboard")
+        bad_request("A volume can't span the gap between two panels")
     return points
 
 

@@ -7,7 +7,8 @@ import { clamp, round2 } from './common.js';
 
 const VOLUME_COLORS = [['black', 'Black'], ['green', 'Dark green']];
 const volumeColorName = (key) => VOLUME_COLORS.find(([k]) => k === key)[1];
-const PANEL_NAMES = { main: 'main board', foot: 'footboard' };
+// The panels a volume can go on (not the ceiling), as holds.VOLUME_PANELS.
+const PANEL_NAMES = { main: 'main board', foot: 'footboard', left: 'left panel', right: 'right panel' };
 
 const samePoint = (a, b) => Math.abs(a[0] - b[0]) < 0.005 && Math.abs(a[1] - b[1]) < 0.005;
 // How far a press reaches: about 12px on screen (22px for a finger), never under 0.6".
@@ -23,13 +24,12 @@ function closestOnSegment([ax, ay], [bx, by], { x, y }) {
 // `wall` is wallGeometry(spec); `tab` is the Wall tab's { show, select }.
 export function volumeEditor(ctx, wall, tab) {
   const { state, board } = ctx;
-  const spec = state.spec;
-  const { nearest, clampToPanels } = wall;
+  const { nearest, panelOf, clampToPanels } = wall;
   let volumeDraft = null; // volume outline being drawn: { points, color, snap, panel, … } (newVolumeDraft)
   let vEls = null;        // live controls of the volume form
   let listOpen = false;   // the list of volumes stays open across redraws
 
-  const panelOfY = (y) => (y <= spec.height ? 'main' : 'foot');
+  const panelOfPoint = ([x, y]) => panelOf(x, y);
 
   // The Volumes part of the Wall tab's overview: Add a volume, and the list.
   function section() {
@@ -47,7 +47,7 @@ export function volumeEditor(ctx, wall, tab) {
         },
         h('span', { class: `volume-chip ${v.color}` }),
         h('span', { class: 'volume-desc' }, [`${volumeColorName(v.color)} volume`, `${v.points.length} corners`,
-          v.faces && v.faces.length ? plural(v.faces.length, 'face') : null, PANEL_NAMES[panelOfY(v.points[0][1])]].filter(Boolean).join(' · ')),
+          v.faces && v.faces.length ? plural(v.faces.length, 'face') : null, PANEL_NAMES[panelOfPoint(v.points[0])]].filter(Boolean).join(' · ')),
         h('button', { type: 'button', class: 'btn btn-small', title: 'Move its corners or change its color', onClick: () => edit(v) }, 'Edit'),
         h('button', { type: 'button', class: 'btn btn-small btn-ghost-danger', onClick: () => deleteVolume(v) }, 'Delete')))));
   }
@@ -69,7 +69,7 @@ export function volumeEditor(ctx, wall, tab) {
 
   function edit(v) {
     volumeDraft = newVolumeDraft({
-      id: v.id, points: v.points.map(([x, y]) => [x, y]), color: v.color, panel: panelOfY(v.points[0][1]),
+      id: v.id, points: v.points.map(([x, y]) => [x, y]), color: v.color, panel: panelOfPoint(v.points[0]),
       faces: (v.faces || []).map((f) => f.map(([x, y]) => [x, y])),
     });
     tab.select(null);
@@ -184,14 +184,14 @@ export function volumeEditor(ctx, wall, tab) {
     tab.show();
   }
 
-  // Where a press on the board puts a corner: on the main panel or the
-  // footboard (volumes never go on a side panel or the ceiling), on the same panel as the
-  // first corner, and on a t-nut if snapping is on.
+  // Where a press on the board puts a corner: on the main panel, the footboard
+  // or a side panel (volumes never go on the ceiling), on the same panel as the
+  // first corner, and on a t-nut if snapping is on and the panel has them.
   function cornerAt(point) {
-    let [x, y] = clampToPanels(point.x, point.y, volumeDraft.panel ? [volumeDraft.panel] : ['main', 'foot']);
+    let [x, y] = clampToPanels(point.x, point.y, volumeDraft.panel ? [volumeDraft.panel] : Object.keys(PANEL_NAMES));
     if (volumeDraft.snap) {
       const n = nearest(x, y);
-      [x, y] = [n.x, n.y];
+      if (!n.side) [x, y] = [n.x, n.y];   // a side panel has no t-nuts
     }
     return [round2(x), round2(y)];
   }
@@ -226,7 +226,7 @@ export function volumeEditor(ctx, wall, tab) {
     return h('form', { class: 'editor', onSubmit: save },
       h('button', { type: 'button', class: 'back-link', onClick: cancel }, icon('arrow-left', { size: 15 }), 'Cancel'),
       h('h1', {}, volumeDraft.id ? 'Edit volume' : 'Add a volume'),
-      h('p', { class: 'hint' }, 'Click the corners in order around the volume. They can go anywhere on the main board or the footboard (one panel per volume). Drag any corner to move it. Backspace undoes the last corner, Enter saves, Esc cancels. Zoom with + / − on the board or a pinch.'),
+      h('p', { class: 'hint' }, 'Click the corners in order around the volume. They can go anywhere on the main board, the footboard or a side panel (one panel per volume). Drag any corner to move it. Backspace undoes the last corner, Enter saves, Esc cancels. Zoom with + / − on the board or a pinch.'),
       h('section', { class: 'card' },
         vEls.count,
         h('div', { class: 'actions' }, vEls.undo, vEls.clear),
@@ -373,7 +373,7 @@ export function volumeEditor(ctx, wall, tab) {
           vd.grab = [hit.p[0] - point.x, hit.p[1] - point.y];
         } else {
           const corner = cornerAt(point);
-          if (!vd.points.length) vd.panel = panelOfY(corner[1]);
+          if (!vd.points.length) vd.panel = panelOfPoint(corner);
           vd.points.push(corner);
           vd.drag = [{ face: null, i: vd.points.length - 1 }];
         }
