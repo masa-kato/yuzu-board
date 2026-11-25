@@ -3,8 +3,10 @@
 # On a fresh Pi:
 #   git clone https://github.com/masa-kato/yuzu-board.git ~/yuzu-board
 #   ~/yuzu-board/deploy/pi/install.sh
-# It asks for the Pi's password once, the first time, for two system settings:
-# services that start at boot without a login (linger), and port 80 without root.
+# It asks for the Pi's password once, the first time, for the system settings:
+# services that start at boot without a login (linger), port 80 without root,
+# and Tailscale, for the app away from home. That prints a link to log the Pi
+# in to your Tailscale account and, the first time, one to allow HTTPS.
 set -euo pipefail
 
 LIVE=$HOME/yuzu-board
@@ -46,3 +48,24 @@ else
   echo "No database yet at $DATA/homewall.db: copy it there (docs/deploy.md), then"
   echo "  systemctl --user start yuzu-board"
 fi
+
+# Tailscale: your own devices reach the app from anywhere (docs/deploy.md,
+# "Away from home"). After the login, `tailscale` runs without sudo (--operator).
+tailscale_status() {
+  tailscale status --json 2>/dev/null | python3 -c "import json, sys; print(json.load(sys.stdin)$1)" 2>/dev/null
+}
+if ! command -v tailscale >/dev/null; then
+  echo "Installing Tailscale (asks for your password)..."
+  curl -fsSL https://tailscale.com/install.sh | sh
+fi
+if [[ $(tailscale_status '["BackendState"]') != Running ]]; then
+  echo "Logging the Pi in to Tailscale: open the link below and approve the Pi..."
+  sudo tailscale up --operator="$USER"
+  sudo tailscale set --auto-update || echo "(Tailscale can't update itself here: update it with apt.)"
+fi
+if ! tailscale serve status --json 2>/dev/null | python3 -c 'import json, sys; sys.exit(not json.load(sys.stdin).get("Web"))' 2>/dev/null; then
+  echo "HTTPS: if a link shows below, open it to allow HTTPS for your Tailscale account..."
+  sudo tailscale serve --bg 80
+fi
+name=$(tailscale_status '["Self"]["DNSName"].rstrip(".")')
+echo "Away from home, on your Tailscale devices: https://$name (or http://${name%%.*})"

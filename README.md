@@ -8,7 +8,7 @@ A route tracker for a home bouldering board. It draws the wall to scale and lets
 
 ## Run it
 
-The live app runs on a Raspberry Pi at <http://yuzuberrypi.local>, which keeps the one database, takes each new version from GitHub by itself, and is copied to the Mac every 15 minutes. [docs/deploy.md](docs/deploy.md) covers it: setting it up, the test app for trying changes, and what to do when the Pi is down. What follows is running it on any computer, as the Pi and the test app do.
+The live app runs on a Raspberry Pi at <http://yuzuberrypi.local>, which keeps the one database, takes each new version from GitHub by itself, and is copied to the Mac every 15 minutes. Away from home, your own devices reach it through [Tailscale](docs/deploy.md#away-from-home). [docs/deploy.md](docs/deploy.md) covers it: setting it up, the test app for trying changes, and what to do when the Pi is down. What follows is running it on any computer, as the Pi and the test app do.
 
 ![The Raspberry Pi runs the live app on port 80 and keeps the data; phones, tablets and laptops on the same Wi-Fi open http://yuzuberrypi.local; the Mac copies the Pi's data every 15 minutes and runs the test app on port 5051](docs/img/network.svg)
 
@@ -69,7 +69,7 @@ One climber can be the admin, with a password. Only the admin sees the [Outdoors
 
 The name is added as a climber if it's new. Choosing the admin in the climber menu then asks for the password, once per device: the login lasts a year. **Log out** is at the bottom of the same menu. Running `--set-admin` again changes the password and logs out every device. The password is stored hashed; the key that signs the login cookie is made on the first run and kept in the database.
 
-On your home Wi‑Fi the password travels unencrypted (plain `http://`), so reach the app from outside through something that encrypts the connection, such as Tailscale.
+On your home Wi‑Fi the password travels unencrypted (plain `http://`). Away from home, the app is reached through Tailscale, which encrypts the connection ([docs/deploy.md](docs/deploy.md#away-from-home)).
 
 ## The wall
 

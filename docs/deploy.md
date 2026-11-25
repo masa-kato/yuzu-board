@@ -1,6 +1,6 @@
 # Running the Yuzu Board on the Pi
 
-The live app runs on a Raspberry Pi at **<http://yuzuberrypi.local>**, and the Pi holds the one database everyone writes to. The Mac is where the code is changed and tried out, and it keeps a copy of the Pi's data in case the Pi fails.
+The live app runs on a Raspberry Pi at **<http://yuzuberrypi.local>**, and the Pi holds the one database everyone writes to. Away from home, your own devices reach it through Tailscale ([Away from home](#away-from-home)). The Mac is where the code is changed and tried out, and it keeps a copy of the Pi's data in case the Pi fails.
 
 ```
 Mac:  edit ─► test app :5051 (a copy of the data) ─► commit ─► push (the tests run first)
@@ -67,7 +67,7 @@ ssh yuzu 'git clone https://github.com/masa-kato/yuzu-board.git ~/yuzu-board'
 ssh -t yuzu '~/yuzu-board/deploy/pi/install.sh'     # asks for the Pi's password once
 ```
 
-The installer makes the Python environment and the folders, installs the services, and makes two system settings: services that start at boot without a login (linger), and port 80 without root. It's safe to run again. Then give it the data, either from the Mac's replica (`deploy/mac/failback.sh --from-replica`) or, the first time, by copying `homewall.db` and `uploads/holds/` into `~/yuzu-data/` and running `ssh yuzu systemctl --user start yuzu-board`.
+The installer makes the Python environment and the folders, installs the services, and makes two system settings: services that start at boot without a login (linger), and port 80 without root. Last, it sets up Tailscale ([Away from home](#away-from-home)): open the links it prints. It's safe to run again. Then give it the data, either from the Mac's replica (`deploy/mac/failback.sh --from-replica`) or, the first time, by copying `homewall.db` and `uploads/holds/` into `~/yuzu-data/` and running `ssh yuzu systemctl --user start yuzu-board`.
 
 **The Mac:**
 
@@ -76,6 +76,29 @@ deploy/mac/install.sh
 ```
 
 This makes `~/YuzuBoard`, a key the Pi lets read `~/yuzu-data` and nothing else (no shell, no writes), the sync job (LaunchAgent `com.yuzuboard.sync`), and turns on the pre-push hook. Run it again after changing `deploy/mac/sync-from-pi.sh` or `backup.py`: the sync job runs from copies in `~/YuzuBoard/bin`, since background jobs can't read `~/Documents`.
+
+## Away from home
+
+[Tailscale](https://tailscale.com) puts the Pi and your own devices on a private network of their own, so the app works wherever they have internet, at two addresses only they can open:
+
+- `https://yuzuberrypi.<your-tailnet>.ts.net`, with a certificate from Tailscale. `ssh yuzu tailscale serve status` prints it. This is the one to add to the Home Screen.
+- `http://yuzuberrypi`, plain HTTP, though Tailscale still encrypts it on the way.
+
+No ports are open on the router and nothing is public. Everyone else at home keeps using `http://yuzuberrypi.local`. Each address keeps its own logins, so the admin logs in once on each (see [Moving to a new address](#when-somethings-wrong)).
+
+**Setting it up.** The Pi's installer does the Pi's part. It installs Tailscale and prints a link to log the Pi in to your Tailscale account. The first time, it prints another link to allow HTTPS for the account. Then:
+
+1. In the Tailscale console, under **Machines**, open yuzuberrypi's **⋯** menu and choose **Disable key expiry**. Otherwise the Pi drops off after 180 days until it's logged in again.
+2. On a phone, install the Tailscale app, sign in to the same account, and leave it on. Only traffic to your devices goes through it.
+
+**Checking on it:**
+
+```sh
+ssh yuzu tailscale status          # the devices on it, and which are online
+ssh yuzu tailscale serve status    # the HTTPS address and where it goes
+```
+
+Tailscale runs as a system service (`tailscaled`), not as one of the user services above, and updates itself. The installer lets you run `tailscale` on the Pi without `sudo`.
 
 ## When something's wrong
 
