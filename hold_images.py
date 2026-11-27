@@ -4,6 +4,7 @@ time it's asked for), and the picture of every hold on the wall that touch
 screens draw instead (board.js LIGHT). Everything under board/ is a cache:
 deleting it only means it's made again."""
 
+import functools
 import glob
 import hashlib
 import json
@@ -29,7 +30,7 @@ STORED_PNG_RE = re.compile(r"^[0-9a-f]{32}\.png$")
 # The board shows each hold image as a smaller copy, a number of pixels per
 # inch of the hold's size. A screen asks for what it needs to stay sharp at its
 # closest zoom (?ppi= on /api/holds) and gets the smallest of BOARD_PPI that
-# covers it: a phone, which stops at 2.5×, about 24; a retina laptop at 6×
+# covers it: a phone, which stops at 4×, about 32 to 40; a retina laptop at 6×
 # about 62, so 64 (also the default).
 BOARD_PPI = (24, 32, 48, 64)
 BOARD_PX_STEP = 32
@@ -44,7 +45,8 @@ BOARD_IMAGE_RE = re.compile(
 BOARD_BORDER_MAX = 24
 BOARD_BORDER_OPACITY = 0.9   # as BORDER_OPACITY in board.js
 # Touch screens draw every hold on the wall as one picture (wall_picture),
-# at one of PICTURE_PPI pixels per inch: sharp at their closest zoom.
+# at one of PICTURE_PPI pixels per inch: sharp at their closest zoom, or on a
+# phone to about 2.5× of its 4× (a larger picture would load and draw slower).
 PICTURE_PPI = (12, 16, 20)
 PICTURE_BORDER_MAX = 16
 PICTURE_KEEP = 8   # pictures kept on disk; older ones are deleted
@@ -113,6 +115,32 @@ def board_url(image, size, ppi=BOARD_PPI[-1]):
     px = math.ceil(size * ppi / BOARD_PX_STEP) * BOARD_PX_STEP
     px = min(BOARD_PX_MAX, max(BOARD_PX_MIN, px))
     return "/uploads/holds/board/%s-%d.png" % (image[:-4], px)
+
+
+@functools.lru_cache(maxsize=None)
+def image_size(path):
+    """A stored hold image's (width, height) in pixels, or None when it's
+    gone. Read once: an image never changes (a new one gets a new name)."""
+    try:
+        with Image.open(path) as im:
+            return im.size
+    except OSError:
+        return None
+
+
+def extent(image, size):
+    """The width and height a hold is drawn at, in inches before its
+    rotation: its image fitted to `size` on its longest side, as the board
+    draws it; None when it has no image. The photos are cut out close to the
+    hold, so phones pick the hold a tap is nearest by it (board.js holdNear)
+    without fetching the image."""
+    if not image or not STORED_PNG_RE.match(image):
+        return None
+    pixels = image_size(os.path.join(current_app.config["UPLOAD_DIR"], image))
+    if not pixels:
+        return None
+    longest = max(pixels)
+    return [round(size * side / longest, 2) for side in pixels]
 
 
 def board_variant(im, variant, px):

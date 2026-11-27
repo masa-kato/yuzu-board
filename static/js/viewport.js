@@ -10,8 +10,9 @@
 
 import { TOUCH, h, icon } from './ui.js';
 
-// The closest view: 6× (about 7 columns) with a mouse, 2.5× on touch screens.
-export const maxZoom = () => (TOUCH.matches ? 2.5 : 6);
+// The closest view: 6× (about 7 columns) with a mouse, 4× (about 12) on touch
+// screens.
+export const maxZoom = () => (TOUCH.matches ? 4 : 6);
 const ZOOM_STEP = 1.6;  // per zoom button / key press
 const SETTLE_DELAY = 150;  // ms after the last wheel zoom before the wall is drawn again
 // A quick pan glides on: its speed over the last GLIDE_WINDOW ms (if the finger
@@ -24,6 +25,7 @@ const GLIDE_MIN = 0.3;
 const GLIDE_STOP = 0.02;
 const TOUCH_DELAY = 90;   // ms a touch waits before it counts as a press, in "place" mode
 const PAN_SLOP = 6;       // px a press may wander before it becomes a pan
+const TOUCH_PAN_SLOP = 10;   // and a finger, which wanders more in a tap
 
 // `container` is the board's frame, and `root` the SVG the pointers land on.
 // `layers` move together (the SVG, and on touch screens the wall and the
@@ -70,23 +72,28 @@ export function createViewport({ container, root, layers, base, placing, onWallP
     for (const layer of layers) layer.style.transform = transform;
   }
 
-  // Draws the wall again at the zoom it has come to. A pinch settles when its
-  // fingers lift. The frame's `zoomed` class changes only here too: it changes
-  // the wall's touch-action (and, with a mouse, its cursor), and Safari
-  // redraws the whole wall for that, so it goes with this redraw rather than
-  // adding one mid-gesture.
-  function settle() {
-    clearTimeout(settleTimer);
-    const k = zoomLevel();
-    if (pinch || k === drawnK) return;
+  // Draws the wall again at zoom `k`. The frame's `zoomed` class changes only
+  // here too: it changes the wall's touch-action (and, with a mouse, its
+  // cursor), and Safari redraws the whole wall for that, so it goes with this
+  // redraw rather than adding one mid-gesture.
+  function drawAt(k) {
     drawnK = k;
     for (const layer of layers) {
       layer.style.width = layer.style.height = `${k * 100}%`;
       layer.style.setProperty('--zoom', k);   // keeps grid lines hairline (app.css)
     }
-    container.classList.toggle('zoomed', zoomed());
+    container.classList.toggle('zoomed', k > 1.001);
     onScale();
     place();
+  }
+
+  // Draws the wall again at the zoom it has come to. A pinch settles when its
+  // fingers lift.
+  function settle() {
+    clearTimeout(settleTimer);
+    const k = zoomLevel();
+    if (pinch || k === drawnK) return;
+    drawAt(k);
   }
 
   // For zooms that come in many small steps (a wheel or trackpad pinch).
@@ -126,6 +133,10 @@ export function createViewport({ container, root, layers, base, placing, onWallP
       return;
     }
     goal = target;
+    // Zooming out, the wall is drawn at the new zoom first: shrinking the one
+    // drawn closer up would show all of it, which the browser would then paint
+    // at that size.
+    if (base.w / target.w < drawnK) drawAt(base.w / target.w);
     const from = { ...view };
     const start = performance.now();
     const step = (now) => {
@@ -235,13 +246,13 @@ export function createViewport({ container, root, layers, base, placing, onWallP
     return { dist: Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY) || 1, mid: { clientX: (a.clientX + b.clientX) / 2, clientY: (a.clientY + b.clientY) / 2 } };
   };
 
-  // Tells the view where the pointer is on the wall, and how many wall inches
-  // one screen pixel spans there (so hit areas feel the same at any zoom).
+  // Where a screen point is on the wall, and how many wall inches one screen
+  // pixel spans there (so hit areas feel the same at any zoom).
+  const wallPoint = (at) => ({ ...toWall(at), px: view.w / frame.w });
+
+  // Tells the view where the pointer is on the wall.
   function report(type, at) {
-    const p = toWall(at);
-    p.px = view.w / frame.w;
-    p.touch = !!at.touch;
-    onWallPointer?.(type, p);
+    onWallPointer?.(type, { ...wallPoint(at), touch: !!at.touch });
   }
 
   function press(at) {
@@ -377,7 +388,7 @@ export function createViewport({ container, root, layers, base, placing, onWallP
       const dx = at.clientX - pan.at.clientX;
       const dy = at.clientY - pan.at.clientY;
       if (!pan.moved) {
-        if (Math.hypot(dx, dy) < PAN_SLOP) return;
+        if (Math.hypot(dx, dy) < (e.pointerType === 'touch' ? TOUCH_PAN_SLOP : PAN_SLOP)) return;
         pan.moved = true;
         swallowClick = true;
         capture(e.pointerId);
@@ -444,6 +455,8 @@ export function createViewport({ container, root, layers, base, placing, onWallP
     zoomOut: () => zoomBy(1 / ZOOM_STEP),
     resetZoom,
     reveal,
+    // A click's place on the wall, as wallPoint() gives it.
+    pointAt: wallPoint,
     // The frame's width in CSS pixels (0 until it has been laid out).
     frameWidth: () => frame.w,
     // Wall inches per screen pixel, as the wall is drawn (settle()).

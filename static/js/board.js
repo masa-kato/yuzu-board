@@ -15,7 +15,10 @@ const LIGHT = TOUCH.matches;
 const VERTEX_PX = 6;    // volume corner handles: radius on screen, in CSS pixels
 const HOLD_R = 0.8;     // proxy hold circle
 const RING_R = 1.3;     // picked / hover highlight; t-nuts are 3" apart so rings never touch
-const HIT_R = 1.45;     // invisible tap target
+const HIT_R = 1.45;     // invisible click target, with a mouse
+// A tap on a touch screen picks the hold it lands on or, failing that, the
+// nearest within this many CSS pixels of it (holdNear).
+const TAP_SLOP_PX = 16;
 const HOLE_R = 0.28;    // the wall's bolt holes
 const OUTLINE_WIDTH = 0.45;
 const BORDER_PX = 0.75;  // the thin white border around every hold, on screen in CSS pixels
@@ -55,8 +58,8 @@ export function holdTitle(hold) {
 export const boardImage = (hold) => hold.board_url || hold.image_url;
 
 // Image pixels per inch of hold this screen needs for that: phones, which stop
-// at 2.5×, need far fewer than a laptop at 6×. The board is never wider than
-// the screen's short side.
+// at 4×, need fewer than a laptop at 6×. The board is never wider than the
+// screen's short side.
 export function imagePpi(spec) {
   const shortSide = Math.min(screen.width, screen.height);
   return Math.ceil((shortSide * (window.devicePixelRatio || 1) * maxZoom()) / (spec.max_x - spec.min_x + 2 * MARGIN));
@@ -181,6 +184,33 @@ function volumeDefs() {
 
 const pointsAttr = (points) => points.map(([x, y]) => `${x},${y}`).join(' ');
 
+// Where a horizontal (`along` 0) or vertical (`along` 1) line at `at` runs
+// inside any of `polygons`: sorted, merged [from, to] stretches along it.
+function insideRuns(along, at, polygons) {
+  const across = 1 - along;
+  const runs = [];
+  for (const poly of polygons) {
+    const hits = [];
+    poly.forEach((p, i) => {
+      const q = poly[(i + 1) % poly.length];
+      // Half-open, so a line through a corner crosses there once.
+      if ((p[across] > at) !== (q[across] > at)) {
+        hits.push(p[along] + ((at - p[across]) * (q[along] - p[along])) / (q[across] - p[across]));
+      }
+    });
+    hits.sort((a, b) => a - b);
+    for (let i = 0; i + 1 < hits.length; i += 2) runs.push([hits[i], hits[i + 1]]);
+  }
+  runs.sort((a, b) => a[0] - b[0]);
+  const merged = [];
+  for (const [from, to] of runs) {
+    const last = merged[merged.length - 1];
+    if (last && from <= last[1]) last[1] = Math.max(last[1], to);
+    else merged.push([from, to]);
+  }
+  return merged;
+}
+
 // Plywood grain: noise stretched along x, rendered once as an image tile
 // (cheap to repaint) and repeated across both panels at low opacity.
 const GRAIN_TILE = `data:image/svg+xml,${encodeURIComponent(
@@ -248,48 +278,66 @@ export function createBoard(container, spec, holds, { onHoldClick, onHoldHover, 
   const picture = LIGHT ? h('div', { class: 'holds-picture', hidden: true }, pictureImg) : null;
   const layers = [wallLayer, picture, root].filter(Boolean);
 
-  // The grid is drawn twice: at full strength everywhere except volumes (an
-  // all-or-nothing mask), and dimmed inside volumes (a clip at GRID_ON_VOLUME
-  // opacity). This keeps the dimming an exact, predictable opacity; a single
-  // partially-gray mask renders inconsistently because mask luminance isn't
-  // a simple opacity.
-  const maskVolumes = svg('g');
-  const clipVolumes = svg('clipPath', { id: 'volume-clip' });
-  const defs = svg('defs', {}, Object.entries(OUTLINES).map(([name, c]) => outlineFilter(name, c)), volumeDefs(), materialDefs(spec),
-    svg('mask', { id: 'grid-mask', maskUnits: 'userSpaceOnUse', x: minX, y: minY, width: viewW, height: viewH },
-      svg('rect', { x: minX, y: minY, width: viewW, height: viewH, fill: '#fff' }), maskVolumes),
-    clipVolumes);
+  // The grid and the bolt holes stop at the volumes and the holds by geometry
+  // worked out when those change (drawGrid(), drawHoles()), not by masks: a
+  // mask the size of the wall is drawn all over again at every zoom.
+  const defs = svg('defs', {}, Object.entries(OUTLINES).map(([name, c]) => outlineFilter(name, c)), volumeDefs(), materialDefs(spec));
   const tintDefs = svg('defs');
   const heatDefs = svg('defs');   // one heatFilter per usage color (setHeat)
 
+  // The grid's lines as [along, at, from, to] (see insideRuns), each drawn in
+  // stretches: at full strength off the volumes (`grid`) and at GRID_ON_VOLUME
+  // on them (`gridOnVolumes`). Each stretch keeps its line's dashes in step.
   const footBottom = foot.top + foot.height;
   const ceilingBottom = ceiling.top + ceiling.height;
-  function gridLines(attrs) {
-    const g = svg('g', attrs);
-    spec.col_x.forEach((x) => g.append(svg('line', { x1: x, y1: 0, x2: x, y2: H })));
+  const gridSpans = [
+    ...spec.col_x.map((x) => [1, x, 0, H]),
     // The columns carry on across the ceiling (which has no rows or holes).
-    spec.col_x.forEach((x) => g.append(svg('line', { x1: x, y1: ceiling.top, x2: x, y2: ceilingBottom })));
-    spec.row_y.forEach((y) => g.append(svg('line', { x1: 0, y1: y, x2: W, y2: y })));
+    ...spec.col_x.map((x) => [1, x, ceiling.top, ceilingBottom]),
+    ...spec.row_y.map((y) => [0, y, 0, W]),
     // Footboard: its own grid, confined to the footboard.
-    foot.col_x.forEach((x) => g.append(svg('line', { x1: x, y1: foot.top, x2: x, y2: footBottom })));
-    foot.row_y.forEach((y) => g.append(svg('line', { x1: 0, y1: y, x2: W, y2: y })));
-    return g;
+    ...foot.col_x.map((x) => [1, x, foot.top, footBottom]),
+    ...foot.row_y.map((y) => [0, y, 0, W]),
+  ];
+  const grid = svg('g', { class: 'grid' });
+  const gridOnVolumes = svg('g', { class: 'grid grid-on-volume', opacity: GRID_ON_VOLUME });
+  function drawGrid(polygons) {
+    const off = [];
+    const on = [];
+    const stretch = (along, at, from, a, b) => svg('line', {
+      ...(along ? { x1: at, y1: a, x2: at, y2: b } : { x1: a, y1: at, x2: b, y2: at }),
+      'stroke-dashoffset': a - from || null,
+    });
+    for (const [along, at, from, to] of gridSpans) {
+      let start = from;
+      for (const [a, b] of insideRuns(along, at, polygons)) {
+        const lo = Math.max(a, start);
+        const hi = Math.min(b, to);
+        if (hi <= lo) continue;
+        if (lo > start) off.push(stretch(along, at, from, start, lo));
+        on.push(stretch(along, at, from, lo, hi));
+        start = hi;
+      }
+      if (to > start) off.push(stretch(along, at, from, start, to));
+    }
+    grid.replaceChildren(...off);
+    gridOnVolumes.replaceChildren(...on);
   }
-  const grid = gridLines({ class: 'grid', mask: 'url(#grid-mask)' });
-  const gridOnVolumes = gridLines({ class: 'grid grid-on-volume', 'clip-path': 'url(#volume-clip)', opacity: GRID_ON_VOLUME });
+  drawGrid([]);
 
   // The wall's bolt holes, as one path. The main panel's are staggered: row 1
   // has them in columns A, C, E…, row 2 in B, D, F…, and so on (wherever the
   // column and row indexes add up to an even number). The footboard has one at
-  // every intersection. Volumes cover holes (the grid's mask), and so does every
-  // hold on the wall, even one drawn faded: `holeCovers` holds their black
-  // silhouettes, kept in step with the holds by setHolds() and paint().
+  // every intersection. Volumes cover holes, and so does every hold on the
+  // wall, even one drawn faded: drawHoles() leaves those out.
   const hole = (x, y) => `M${x - HOLE_R},${y}a${HOLE_R},${HOLE_R} 0 1,0 ${2 * HOLE_R},0a${HOLE_R},${HOLE_R} 0 1,0 ${-2 * HOLE_R},0`;
   const holeSpots = [];
   spec.col_x.forEach((x, c) => spec.row_y.forEach((y, r) => {
     if ((c + r) % 2 === 0) holeSpots.push([x, y]);
   }));
   foot.col_x.forEach((x) => foot.row_y.forEach((y) => holeSpots.push([x, y])));
+  // The black shapes of the holds over a volume (#hole-mask), so they hide its
+  // lines even when drawn faded: coverVolumeLines().
   const holeCovers = svg('g');
   // The white border around every hold: the shape grown by a ring, kept to the
   // outside of the hold. Browsers grow a shape only by whole screen pixels, so
@@ -333,14 +381,16 @@ export function createBoard(container, spec, holds, { onHoldClick, onHoldHover, 
       svg('feComposite', { in: 'grown', in2: 'SourceAlpha', operator: 'out', result: 'ring' }),
       svg('feMerge', {}, svg('feMergeNode', { in: 'ring' }), svg('feMergeNode', { in: 'SourceGraphic' }))),
     ...ROLES.map(ringFilter),
-    svg('filter', { id: 'silhouette', 'color-interpolation-filters': 'sRGB' },
-      svg('feColorMatrix', { values: '0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 1 0' })),
     svg('mask', { id: 'hole-mask', maskUnits: 'userSpaceOnUse', x: minX, y: minY, width: viewW, height: viewH },
       svg('rect', { x: minX, y: minY, width: viewW, height: viewH, fill: '#fff' }), holeCovers));
-  // LIGHT: no hole mask, which phones redraw slowly (coverHoles() leaves the
-  // covered holes out instead).
-  const holesPath = svg('path', { d: holeSpots.map(([x, y]) => hole(x, y)).join(''), mask: LIGHT ? null : 'url(#hole-mask)' });
-  const holes = svg('g', { class: 'wall-holes', mask: 'url(#grid-mask)' }, holesPath);
+  const holesPath = svg('path');
+  const holes = svg('g', { class: 'wall-holes' }, holesPath);
+  let holdHoles = new Set();     // indexes into holeSpots of the holes under a hold (updateHoles)
+  let volumeHoles = new Set();   // and of those under a volume (setVolumes)
+  function drawHoles() {
+    holesPath.setAttribute('d', holeSpots.filter((_, i) => !holdHoles.has(i) && !volumeHoles.has(i)).map(([x, y]) => hole(x, y)).join(''));
+  }
+  drawHoles();
 
   // Label elements are kept per panel and index so the nearest row and
   // column can be highlighted while a hold is being placed.
@@ -407,7 +457,8 @@ export function createBoard(container, spec, holds, { onHoldClick, onHoldHover, 
 
   const nodes = new Map();
   const covers = new Map();   // hold id -> its silhouette in the hole mask
-  const rings = new Map();    // hold id -> its role ring, made the first time it's on a problem
+  let shownVolumes = [];      // the volumes drawn: all but one being reshaped (setVolumes)
+  const rings = new Map();   // hold id -> its role ring, made the first time it's on a problem
   // The role rings, drawn inside holdLayer between the holds off the problem
   // and the holds on it (paint()).
   const ringLayer = svg('g', { class: 'role-rings' });
@@ -480,9 +531,8 @@ export function createBoard(container, spec, holds, { onHoldClick, onHoldHover, 
       const rim = svg('image', { preserveAspectRatio: 'xMidYMid meet' });
       looks.set(hold.id, { ...lightLooks(hold), image, rim });
       setLook(hold.id, g);
-      // What a tap lands on while the hold is in the picture (its art hidden).
-      g.append(svg('rect', { class: 'hit', x: -s / 2, y: -s / 2, width: s, height: s, transform: `rotate(${hold.rotation})` }),
-        svg('g', { class: 'hold-art', transform: `rotate(${hold.rotation})` }, rim, image),
+      // A tap finds it by its place, not its art (holdNear).
+      g.append(svg('g', { class: 'hold-art', transform: `rotate(${hold.rotation})` }, rim, image),
         svg('circle', { class: 'ghost-ring', r: s / 2 + 0.3 }));
     } else if (hold.image_url) {
       const s = hold.size;
@@ -501,54 +551,89 @@ export function createBoard(container, spec, holds, { onHoldClick, onHoldHover, 
     return g;
   }
 
-  // A hold's shape at its place on the wall: the PNG, or the placeholder
-  // circle. Only its opaque pixels matter, for the hole mask and the role ring.
-  function holdShape(hold, imageFilter = null) {
+  // A hold's shape at its place on the wall: the PNG (or `href`, another copy
+  // of it), or the placeholder circle. Only its opaque pixels matter, for the
+  // hole mask and the role ring.
+  function holdShape(hold, href = boardImage(hold)) {
     if (!hold.image_url) return svg('circle', { cx: hold.x, cy: hold.y, r: HOLD_R, fill: '#000' });
     const s = hold.size;
     return svg('g', { transform: `translate(${hold.x} ${hold.y}) rotate(${hold.rotation})` },
-      svg('image', { href: boardImage(hold), x: -s / 2, y: -s / 2, width: s, height: s, preserveAspectRatio: 'xMidYMid meet', filter: imageFilter }));
+      svg('image', { href, x: -s / 2, y: -s / 2, width: s, height: s, preserveAspectRatio: 'xMidYMid meet' }));
   }
 
-  // The hold in black, for the hole mask.
-  const holeCover = (hold) => holdShape(hold, 'url(#silhouette)');
+  // The hold in black (hold_images.py's "s" copy), for the hole mask.
+  const holeCover = (hold) => holdShape(hold, hold.board_url ? variantUrl(hold, 's') : boardImage(hold));
 
-  // LIGHT: the bolt-hole path without the holes under a hold (on the wall,
-  // and not the one being moved), found by drawing the holds' black shapes
-  // small on a canvas once, rather than masking the holes on every redraw.
+  // The hole mask's black shapes: only the holds that may be over a volume
+  // (by their bounding boxes), so it stays small. Touch screens leave it
+  // empty, as phones redraw masks slowly.
+  function coverVolumeLines() {
+    covers.clear();
+    if (LIGHT) return;
+    const boxes = shownVolumes.map((v) => {
+      const xs = v.points.map((p) => p[0]);
+      const ys = v.points.map((p) => p[1]);
+      return [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)];
+    });
+    const over = (hold) => {
+      const r = hold.image_url ? hold.size * Math.SQRT1_2 : HOLD_R;   // reaches no further at any rotation
+      return boxes.some(([left, top, right, bottom]) => hold.x + r > left && hold.x - r < right && hold.y + r > top && hold.y - r < bottom);
+    };
+    holeCovers.replaceChildren(...[...holdById.values()].filter((hold) => !hold.removed && over(hold)).map((hold) => {
+      const cover = holeCover(hold);
+      if (hold.id === hiddenId) cover.style.display = 'none';
+      covers.set(hold.id, cover);
+      return cover;
+    }));
+  }
+
+  // The holes under a hold (on the wall, and not the one being moved), found
+  // by drawing the holds' shapes small on a canvas once, rather than masking
+  // the holes on every redraw. Touch screens fetch the black copies (they
+  // don't load the holds' own images while the picture shows them); computers
+  // use the images the board already has.
   const HOLE_CANVAS_PPI = 4;
   let coverToken = 0;
   async function coverHoles() {
     const token = ++coverToken;
-    const shown = [...holdById.values()].filter((hold) => looks.has(hold.id) && !hold.removed && hold.id !== hiddenId);
-    const images = await Promise.all(shown.map((hold) => new Promise((resolve) => {
+    const shown = [...holdById.values()].filter((hold) => !hold.removed && hold.id !== hiddenId);
+    const images = await Promise.all(shown.map((hold) => {
+      if (!hold.image_url) return null;
       const img = new Image();
-      img.onload = () => resolve(img);
-      img.onerror = () => resolve(null);
-      img.src = variantUrl(hold, 's');
-    })));
+      img.src = LIGHT && hold.board_url ? variantUrl(hold, 's') : boardImage(hold);
+      return img.decode().then(() => img, () => null);
+    }));
     if (token !== coverToken) return;
     const canvas = document.createElement('canvas');
     canvas.width = Math.ceil(viewW * HOLE_CANVAS_PPI);
     canvas.height = Math.ceil(viewH * HOLE_CANVAS_PPI);
     const c = canvas.getContext('2d', { willReadFrequently: true });
     shown.forEach((hold, i) => {
+      c.setTransform(HOLE_CANVAS_PPI, 0, 0, HOLE_CANVAS_PPI, -minX * HOLE_CANVAS_PPI, -minY * HOLE_CANVAS_PPI);
+      c.translate(hold.x, hold.y);
+      if (!hold.image_url) {
+        c.beginPath();
+        c.arc(0, 0, HOLD_R, 0, 2 * Math.PI);
+        c.fill();
+        return;
+      }
       const img = images[i];
       if (!img) return;
       const k = hold.size / Math.max(img.width, img.height);   // drawn to fit its size, as on the board
-      c.setTransform(HOLE_CANVAS_PPI, 0, 0, HOLE_CANVAS_PPI, -minX * HOLE_CANVAS_PPI, -minY * HOLE_CANVAS_PPI);
-      c.translate(hold.x, hold.y);
       c.rotate((hold.rotation * Math.PI) / 180);
       c.drawImage(img, (-img.width * k) / 2, (-img.height * k) / 2, img.width * k, img.height * k);
     });
     const { data } = c.getImageData(0, 0, canvas.width, canvas.height);
     const covered = ([x, y]) => data[(Math.round((y - minY) * HOLE_CANVAS_PPI) * canvas.width + Math.round((x - minX) * HOLE_CANVAS_PPI)) * 4 + 3] > 127;
-    holesPath.setAttribute('d', holeSpots.filter((spot) => !covered(spot)).map(([x, y]) => hole(x, y)).join(''));
+    holdHoles = new Set(holeSpots.flatMap((spot, i) => (covered(spot) ? [i] : [])));
+    drawHoles();
   }
 
   // LIGHT: the picture of every hold on the wall, for the holds as they are
   // and the slider's opacity, at the pixels per inch this screen needs at its
-  // closest zoom. Until the first one arrives no hold is drawn (so the phone
+  // closest zoom, or at most PICTURE_PPI's last: on a phone that's sharp to
+  // about 2.5×, and a little soft closer up (the holds on a climb, drawn one
+  // by one, stay sharp). Until the first one arrives no hold is drawn (so the phone
   // doesn't fetch every hold's image meanwhile); while a new one is on its way
   // after the holds change, they're drawn one by one; one for a new opacity
   // replaces the old when it's ready.
@@ -586,18 +671,21 @@ export function createBoard(container, spec, holds, { onHoldClick, onHoldHover, 
     paint();
   }
 
-  // The bolt holes left out of the path: those under a hold in the picture
-  // (still right under the Stats colors), or, while the holds have changed
-  // since or one is being moved, under the holds as coverHoles() finds them.
+  // The bolt holes left out of the path for the holds: on touch screens those
+  // under a hold in the picture (still right under the Stats colors);
+  // otherwise, or while the holds have changed since or one is being moved,
+  // those under the holds as coverHoles() finds them.
   let holesFor = null;
   function updateHoles() {
-    if (!LIGHT || pictureState === 'loading') return;
-    const fromPicture = pictureState === 'ready' && hiddenId == null;
+    if (LIGHT && pictureState === 'loading') return;
+    const fromPicture = LIGHT && pictureState === 'ready' && hiddenId == null;
     const key = fromPicture ? `picture ${pictureImg.src}` : `holds ${hiddenId}`;
     if (key === holesFor) return;
     holesFor = key;
-    if (fromPicture) holesPath.setAttribute('d', holeSpots.filter((_, i) => !pictureCovered.has(i)).map(([x, y]) => hole(x, y)).join(''));
-    else coverHoles();
+    if (fromPicture) {
+      holdHoles = pictureCovered;
+      drawHoles();
+    } else coverHoles();
   }
 
   // LIGHT: the wall and the picture follow `root`'s state (app.css fades the
@@ -706,19 +794,15 @@ export function createBoard(container, spec, holds, { onHoldClick, onHoldHover, 
       nodes.set(hold.id, g);
       return g;
     }), ringLayer);
-    // Removed holds are off the wall, so their holes show again. The picture
-    // shows the holds as they were until a new one comes.
-    covers.clear();
+    // Removed holds are off the wall, so their holes show again (paint()
+    // updates them). The picture shows the holds as they were until a new
+    // one comes.
+    holesFor = null;
     if (LIGHT) {
-      holesFor = null;
       if (pictureState !== 'loading') pictureState = 'stale';
       refreshPicture();
     }
-    holeCovers.replaceChildren(...list.filter((hold) => !hold.removed && !LIGHT).map((hold) => {
-      const cover = holeCover(hold);
-      covers.set(hold.id, cover);
-      return cover;
-    }));
+    coverVolumeLines();
     paint();
   }
 
@@ -753,9 +837,49 @@ export function createBoard(container, spec, holds, { onHoldClick, onHoldHover, 
     const g = e.target.closest && e.target.closest('.hold');
     return g ? holdById.get(Number(g.dataset.id)) : null;
   };
-  holdLayer.addEventListener('click', (e) => {
-    const hold = holdFromEvent(e);
-    if (hold && root.dataset.mode !== 'place') onHoldClick?.(hold);
+  // How far wall point (x, y) is outside `hold`, in inches (0 on it), and
+  // `n`, how far out from its middle the point is in its own size (1 at its
+  // edge). A hold is taken as the ellipse in its image, which is cut out close
+  // to it: `extent` (holds.py) turned by its rotation.
+  function reach(hold, x, y) {
+    const [w, ht] = hold.extent || (hold.image_url ? [hold.size, hold.size] : [2 * HOLD_R, 2 * HOLD_R]);
+    const t = (hold.rotation * Math.PI) / 180;
+    const dx = x - hold.x;
+    const dy = y - hold.y;
+    const n = Math.hypot((dx * Math.cos(t) + dy * Math.sin(t)) / (w / 2), (dy * Math.cos(t) - dx * Math.sin(t)) / (ht / 2));
+    return { n, gap: n <= 1 ? 0 : Math.hypot(dx, dy) * (1 - 1 / n) };
+  }
+
+  // The hold a tap at wall point `p` (viewport.pointAt) means, or null: of
+  // those it lands on, the one it's nearest the middle of (holds never
+  // overlap on the wall, though their pictures' corners may); otherwise the
+  // nearest within TAP_SLOP_PX, as a fingertip covers more than a small hold
+  // at any zoom. Only the holds showing count: not one being moved, nor a
+  // removed one unless it's on the climb.
+  function holdNear({ x, y, px }) {
+    let on = null;
+    let near = null;
+    let nearGap = TAP_SLOP_PX * px;
+    for (const [id, g] of nodes) {
+      const hold = holdById.get(id);
+      if (id === hiddenId || (hold.removed && !g.dataset.role)) continue;
+      const { n, gap } = reach(hold, x, y);
+      if (!gap && (!on || n < on.n)) on = { hold, n };
+      else if (gap && gap < nearGap) {
+        near = hold;
+        nearGap = gap;
+      }
+    }
+    return on ? on.hold : near;
+  }
+
+  // A tap on a touch screen picks a hold by holdNear(); a mouse the hold it
+  // points at, as it hovers. Heard on the frame: the clicks that end a pan,
+  // pinch or swipe stop on their way there (viewport.js, swipe.js).
+  container.addEventListener('click', (e) => {
+    if (!root.contains(e.target) || root.dataset.mode === 'place') return;
+    const hold = LIGHT ? holdNear(viewport.pointAt(e)) : holdFromEvent(e);
+    if (hold) onHoldClick?.(hold);
   });
   holdLayer.addEventListener('pointerover', (e) => onHoldHover?.(holdFromEvent(e)));
   holdLayer.addEventListener('pointerleave', () => onHoldHover?.(null));
@@ -814,6 +938,7 @@ export function createBoard(container, spec, holds, { onHoldClick, onHoldHover, 
   function setVolumes(list) {
     volumeList = list;
     const shown = list.filter((v) => v.id !== hiddenVolumeId);
+    shownVolumes = shown;
     volumeLayer.replaceChildren(...shown.map((v) => svg('polygon', { class: `volume ${v.color}`, points: pointsAttr(v.points) })));
     volumeEdgeNodes = new Map();
     volumeEdges.replaceChildren(...shown.map((v) => {
@@ -821,8 +946,12 @@ export function createBoard(container, spec, holds, { onHoldClick, onHoldHover, 
       volumeEdgeNodes.set(v.id, edge);
       return edge;
     }));
-    maskVolumes.replaceChildren(...shown.map((v) => svg('polygon', { points: pointsAttr(v.points), fill: '#000' })));
-    clipVolumes.replaceChildren(...shown.map((v) => svg('polygon', { points: pointsAttr(v.points) })));
+    // The grid fades over the volumes, and they cover the bolt holes under them.
+    const outlines = shown.map((v) => v.points);
+    drawGrid(outlines);
+    volumeHoles = new Set(holeSpots.flatMap(([x, y], i) => (insideRuns(0, y, outlines).some(([a, b]) => x > a && x < b) ? [i] : [])));
+    drawHoles();
+    coverVolumeLines();
     const withFaces = shown.filter((v) => v.faces && v.faces.length);
     faceClips.replaceChildren(...withFaces.map((v) => svg('clipPath', { id: `faces-clip-${v.id}` }, svg('polygon', { points: pointsAttr(v.points) }))));
     faceLines.replaceChildren(...withFaces.map((v) => svg('g', { 'clip-path': `url(#faces-clip-${v.id})` },

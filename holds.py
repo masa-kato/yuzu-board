@@ -53,6 +53,7 @@ def serialize_hold(h, ppi=hold_images.BOARD_PPI[-1]):
         "image_url": "/uploads/holds/%s" % h["image"] if h["image"] else None,
         "board_url": hold_images.board_url(h["image"], h["size"], ppi),
         "size": h["size"],
+        "extent": hold_images.extent(h["image"], h["size"]),
         "rotation": h["rotation"],
         "color": h["color"],
         "removed": h["removed_at"] is not None,

@@ -163,7 +163,7 @@ Every call takes and returns JSON. An error is `{"error": "…"}` with status 40
 |---|---|
 | `GET /api/board` | The wall's measurements and t-nut grid |
 | `GET /api/hold-names` | `{letter: [nouns]}` |
-| `GET /api/holds?ppi=` | Every hold, removed ones included; `ppi` sizes `board_url` for the screen |
+| `GET /api/holds?ppi=` | Every hold, removed ones included; `ppi` sizes `board_url` for the screen, and `extent` is the hold's drawn width and height in inches (its image fitted to `size`) |
 | `POST /api/holds` | A new hold: multipart form with `image` (PNG), `x`, `y`, and optionally `size`, `rotation`, `color`, `name` |
 | `PUT /api/holds/<id>` | Changes a hold (form or JSON); a new `image` replaces the old one |
 | `GET /api/holds/<id>/impact` | The climbs that use it, and which would go to Legacy if it were removed |

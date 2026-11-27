@@ -303,6 +303,24 @@ class HoldApiTest(ApiTestCase):
         # Placeholder holds have no image.
         self.assertIsNone(self.holds()[1]["board_url"])
 
+    def test_extent_follows_the_image(self):
+        x, y = geometry.tnut_xy(5, 3)
+        hold = self.upload(image=png_bytes(400, 300), x=x, y=y, size=2, name="Ferret")
+        # The image fitted to the hold's size on its longest side.
+        self.assertEqual(hold["extent"], [2.0, 1.5])
+        res = self.client.put("/api/holds/%d" % hold["id"], json={"size": 4})
+        self.assertEqual(res.get_json()["extent"], [4.0, 3.0])
+        tall = self.upload(image=png_bytes(30, 90), x=x, y=y + 3, size=3, name="Fox")
+        self.assertEqual(tall["extent"], [1.0, 3.0])
+        # Placeholder holds have none, nor does a hold whose image is gone.
+        conn = db.connect(self.db_path)
+        conn.execute("UPDATE holds SET image = ? WHERE id = ?", ("0" * 32 + ".png", tall["id"]))
+        conn.commit()
+        conn.close()
+        holds = self.holds()
+        self.assertIsNone(holds[1]["extent"])
+        self.assertIsNone(holds[tall["id"]]["extent"])
+
     def test_board_images_sized_for_the_screen(self):
         x, y = geometry.tnut_xy(5, 3)
         hold_id = self.upload(image=png_bytes(800, 600), x=x, y=y, size=6, name="Ferret")["id"]
